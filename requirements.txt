@@ -1,2 +1,2 @@
-python-telegram-bot
-requests
+python-telegram-bot[ext]>=20.0
+requests>=2.31.0
