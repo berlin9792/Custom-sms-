@@ -31,7 +31,7 @@ DB_FILE = "users_db.json"
 REDEEM_DB_FILE = "redeem_codes.json"
 
 # --- [ FORCE JOIN CONFIGURATION (SINGLE CHANNEL) ] ---
-CHANNEL_ID = "@your_channel_username"  # Apna Channel Username yahan dalein
+CHANNEL_ID = "@zerotracelegit"  # Apna Channel Username yahan dalein
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher(storage=MemoryStorage())
