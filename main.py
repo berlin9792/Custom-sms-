@@ -60,7 +60,7 @@ stop_signals = {}
 user_attacks = {}
 attack_stats = {}
 
-# --- [ REDEEM DATABASE FUNCTIONS - UPDATED ] ---
+# --- [ REDEEM DATABASE FUNCTIONS ] ---
 def load_redeem_db():
     if not os.path.exists(REDEEM_DB_FILE):
         with open(REDEEM_DB_FILE, 'w') as f:
@@ -89,11 +89,11 @@ def create_redeem_code(code, credits, max_uses):
         "credits": credits,
         "max_uses": max_uses,
         "used_count": 0,
-        "redeemed_by": [],  # List of user IDs
-        "redeemed_users": [],  # List of usernames
+        "redeemed_by": [],
+        "redeemed_users": [],
         "created_at": time.strftime('%d-%m-%Y %H:%M:%S'),
         "created_by": "Admin",
-        "is_active": True  # New field for enable/disable
+        "is_active": True
     }
     save_redeem_db(db)
     return True
@@ -105,7 +105,6 @@ def validate_redeem_code(code, user_id):
     
     code_data = db["codes"][code]
     
-    # Check if code is active
     if not code_data.get("is_active", True):
         return False, "Yeh code ab active nahi hai (Admin ne disable kar diya)."
     
@@ -115,20 +114,21 @@ def validate_redeem_code(code, user_id):
     if str(user_id) in code_data["redeemed_by"]:
         return False, "Aap yeh code pehle hi use kar chuke ho."
     
-    # Redeem code
     code_data["used_count"] += 1
     code_data["redeemed_by"].append(str(user_id))
     
-    # Get username for tracking
     user_db = load_db()
     username = "Unknown"
     if str(user_id) in user_db["users"]:
         username = user_db["users"][str(user_id)].get("username", "Unknown")
     
-    code_data["redeemed_users"].append({"user_id": str(user_id), "username": username, "time": time.strftime('%d-%m-%Y %H:%M:%S')})
+    code_data["redeemed_users"].append({
+        "user_id": str(user_id), 
+        "username": username, 
+        "time": time.strftime('%d-%m-%Y %H:%M:%S')
+    })
     save_redeem_db(db)
     
-    # Add credits to user
     if str(user_id) in user_db["users"]:
         user_db["users"][str(user_id)]["credits"] += code_data["credits"]
         save_db(user_db)
@@ -136,12 +136,10 @@ def validate_redeem_code(code, user_id):
     return True, f"✅ Code successfully redeem ho gaya! +{code_data['credits']} Credits mile."
 
 def toggle_redeem_code(code):
-    """Enable/Disable redeem code"""
     db = load_redeem_db()
     if code not in db["codes"]:
         return False, "Code nahi mila!"
     
-    # Toggle status
     current_status = db["codes"][code].get("is_active", True)
     db["codes"][code]["is_active"] = not current_status
     save_redeem_db(db)
@@ -150,7 +148,6 @@ def toggle_redeem_code(code):
     return True, f"Code {code} ab {status} hai!"
 
 def delete_redeem_code(code):
-    """Delete redeem code"""
     db = load_redeem_db()
     if code not in db["codes"]:
         return False, "Code nahi mila!"
@@ -847,7 +844,7 @@ async def admin_users_list(callback: types.CallbackQuery):
     await callback.message.edit_text(f"📊 Total Users: {total}", reply_markup=create_admin_inline_keyboard())
     await callback.answer()
 
-# --- [ LIST REDEEM CODES - FIXED WITH DETAILS ] ---
+# --- [ LIST REDEEM CODES - FIXED ] ---
 @dp.callback_query(F.data == "adm_list_redeem")
 async def admin_list_codes(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -894,7 +891,6 @@ async def admin_list_codes(callback: types.CallbackQuery):
         # Inline buttons for each code
         builder = InlineKeyboardBuilder()
         for code in codes.keys():
-            # Toggle button
             toggle_text = "❌ Disable" if codes[code].get("is_active", True) else "✅ Enable"
             builder.row(
                 InlineKeyboardButton(
