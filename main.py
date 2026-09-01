@@ -28,10 +28,9 @@ DEVELOPER_ID = "@theplayerror"  # Developer Telegram Username
 ADMIN_IDS = [5057489358]       # Yahan apna Admin Telegram Numeric ID dalein
 DB_FILE = "users_db.json"
 
-# --- [ FORCE JOIN CONFIGURATION ] ---
-# Yahan apne dono channels ke Username (@ ke sath) ya Numeric ID dalein
-CHANNEL_1 = "@zerotracelegit" # Replace with Channel 1
-CHANNEL_2 = "@hackkwr"  # Replace with Channel 2
+# --- [ FORCE JOIN CONFIGURATION (SINGLE CHANNEL) ] ---
+# Yahan apne Telegram Channel ka Username (@ ke sath) dalein
+CHANNEL_ID = "@zerotracelegit"  # Apna Channel Username yahan dalein
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher(storage=MemoryStorage())
@@ -88,19 +87,16 @@ def get_user_data(user_id):
 
 # --- [ SUBSCRIPTION VERIFICATION (FORCE JOIN) ] ---
 async def check_subscription(user_id: int) -> bool:
-    """Checks if user has joined both channels"""
+    """Checks if user has joined the channel"""
     # Admins are exempted from verification
     if user_id in ADMIN_IDS:
         return True
     try:
-        member1 = await bot.get_chat_member(chat_id=CHANNEL_1, user_id=user_id)
-        member2 = await bot.get_chat_member(chat_id=CHANNEL_2, user_id=user_id)
-        
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
         valid_statuses = ["creator", "administrator", "member"]
-        return member1.status in valid_statuses and member2.status in valid_statuses
+        return member.status in valid_statuses
     except Exception as e:
-        logger.error(f"Subscription check failed: {e}. Ensure bot is Admin in channels.")
-        # Fallback to False to prevent bypass if bot is admin
+        logger.error(f"Subscription check failed: {e}. Ensure bot is Admin in the channel.")
         return False
 
 # --- [ DUMMY SERVER FOR RENDER ] ---
@@ -292,12 +288,9 @@ def create_admin_inline_keyboard():
 
 def create_force_join_keyboard():
     builder = InlineKeyboardBuilder()
-    # Format usernames into valid Telegram join links
-    c1_link = f"https://t.me/{CHANNEL_1.replace('@', '')}"
-    c2_link = f"https://t.me/{CHANNEL_2.replace('@', '')}"
+    c_link = f"https://t.me/{CHANNEL_ID.replace('@', '')}"
     
-    builder.row(InlineKeyboardButton(text="📢 Join Channel 1", url=c1_link))
-    builder.row(InlineKeyboardButton(text="📢 Join Channel 2", url=c2_link))
+    builder.row(InlineKeyboardButton(text="📢 Join Channel", url=c_link))
     builder.row(InlineKeyboardButton(text="✅ Verify / Joined", callback_data="verify_sub"))
     return builder.as_markup()
 
@@ -306,7 +299,7 @@ async def send_join_request_message(message: types.Message):
     join_text = f"""
 🔒 <b>ACCESS LOCKED!</b> 🔒
 
-Bot ke advance features use karne ke liye aapko humare dono official channels ko join karna zaroori hai.
+Bot ke advance features use karne ke liye aapko humare official channel ko join karna zaroori hai.
 
 🔥 <b>BOT KEY FEATURES:</b>
 ⚡ <b>3-in-1 Attack:</b> SMS + Voice Call + WhatsApp ek sath.
@@ -314,7 +307,7 @@ Bot ke advance features use karne ke liye aapko humare dono official channels ko
 🎁 <b>Free Trial:</b> Har naye user ko 10 Free Credits.
 🛑 <b>Instant Stop:</b> 1-click me attack turant band karne ka control.
 
-👇 Neeche dono channels join karke <b>'✅ Verify / Joined'</b> par click karein:
+👇 Neeche channel join karke <b>'✅ Verify / Joined'</b> par click karein:
     """
     await message.answer(join_text, reply_markup=create_force_join_keyboard(), parse_mode="HTML")
 
@@ -370,7 +363,7 @@ Ab aap '🚀 Start Infinite Boom' button ka use karke instant bombing start kar 
         """
         await callback.message.answer(welcome_text, reply_markup=create_main_keyboard(user_id))
     else:
-        await callback.answer("❌ Aapne dono channels join nahi kiye hain! Kripya dono join karein.", show_alert=True)
+        await callback.answer("❌ Aapne channel join nahi kiya hai! Kripya channel join karein.", show_alert=True)
 
 @dp.message(F.text == "👤 Meri Profile")
 async def user_profile(message: types.Message):
