@@ -36,7 +36,7 @@ CHANNEL_ID = "@zerotracelegit"
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher(storage=MemoryStorage())
 
-# --- [ FSM STATES - ALAG ALAG CLASSES ] ---
+# --- [ FSM STATES ] ---
 class BroadcastStates(StatesGroup):
     waiting_for_message = State()
 
@@ -60,7 +60,7 @@ stop_signals = {}
 user_attacks = {}
 attack_stats = {}
 
-# --- [ REDEEM DATABASE FUNCTIONS ] ---
+# --- [ REDEEM DATABASE FUNCTIONS - UPDATED ] ---
 def load_redeem_db():
     if not os.path.exists(REDEEM_DB_FILE):
         with open(REDEEM_DB_FILE, 'w') as f:
@@ -89,11 +89,14 @@ def create_redeem_code(code, credits, max_uses):
         "credits": credits,
         "max_uses": max_uses,
         "used_count": 0,
-        "redeemed_by": [],
+        "redeemed_by": [],  # List of user IDs
+        "redeemed_users": [],  # List of usernames
         "created_at": time.strftime('%d-%m-%Y %H:%M:%S'),
-        "created_by": "Admin"
+        "created_by": "Admin",
+        "is_active": True  # New field for enable/disable
     }
     save_redeem_db(db)
+    return True
 
 def validate_redeem_code(code, user_id):
     db = load_redeem_db()
@@ -101,22 +104,60 @@ def validate_redeem_code(code, user_id):
         return False, "Invalid code! Yeh code exist nahi karta."
     
     code_data = db["codes"][code]
+    
+    # Check if code is active
+    if not code_data.get("is_active", True):
+        return False, "Yeh code ab active nahi hai (Admin ne disable kar diya)."
+    
     if code_data["used_count"] >= code_data["max_uses"]:
         return False, "Yeh code already use ho chuka hai (limit reached)."
     
     if str(user_id) in code_data["redeemed_by"]:
         return False, "Aap yeh code pehle hi use kar chuke ho."
     
+    # Redeem code
     code_data["used_count"] += 1
     code_data["redeemed_by"].append(str(user_id))
+    
+    # Get username for tracking
+    user_db = load_db()
+    username = "Unknown"
+    if str(user_id) in user_db["users"]:
+        username = user_db["users"][str(user_id)].get("username", "Unknown")
+    
+    code_data["redeemed_users"].append({"user_id": str(user_id), "username": username, "time": time.strftime('%d-%m-%Y %H:%M:%S')})
     save_redeem_db(db)
     
-    user_db = load_db()
+    # Add credits to user
     if str(user_id) in user_db["users"]:
         user_db["users"][str(user_id)]["credits"] += code_data["credits"]
         save_db(user_db)
     
     return True, f"✅ Code successfully redeem ho gaya! +{code_data['credits']} Credits mile."
+
+def toggle_redeem_code(code):
+    """Enable/Disable redeem code"""
+    db = load_redeem_db()
+    if code not in db["codes"]:
+        return False, "Code nahi mila!"
+    
+    # Toggle status
+    current_status = db["codes"][code].get("is_active", True)
+    db["codes"][code]["is_active"] = not current_status
+    save_redeem_db(db)
+    
+    status = "enabled" if not current_status else "disabled"
+    return True, f"Code {code} ab {status} hai!"
+
+def delete_redeem_code(code):
+    """Delete redeem code"""
+    db = load_redeem_db()
+    if code not in db["codes"]:
+        return False, "Code nahi mila!"
+    
+    del db["codes"][code]
+    save_redeem_db(db)
+    return True, f"Code {code} delete ho gaya!"
 
 # --- [ DATABASE FUNCTIONS ] ---
 def load_db():
@@ -389,10 +430,10 @@ Bot ke advance features use karne ke liye aapko humare official channel ko join 
     await message.answer(join_text, reply_markup=create_force_join_keyboard(), parse_mode="HTML")
 
 # ============================================
-# FSM HANDLERS - SABSE PEHLE (PRIORITY #1)
+# FSM HANDLERS - PRIORITY #1
 # ============================================
 
-# --- [ REDEEM CODE CREATION FSM - FIXED ] ---
+# --- [ REDEEM CODE CREATION FSM ] ---
 @dp.callback_query(F.data == "adm_create_redeem")
 async def admin_create_redeem_start(callback: types.CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
@@ -472,10 +513,8 @@ async def redeem_limit_input(message: types.Message, state: FSMContext):
         code = data.get('redeem_code')
         amount = data.get('redeem_amount')
         
-        # Create the code
         create_redeem_code(code, amount, max_uses)
         
-        # Clear state - IMPORTANT
         await state.clear()
         
         await message.answer(
@@ -541,7 +580,7 @@ async def add_credits_process(message: types.Message, state: FSMContext):
     try:
         parts = message.text.split()
         if len(parts) != 2:
-            await message.answer("❌ Format galat hai! USER_ID AMOUNT bhejein.")
+            await message.answer("❌ Format: USER_ID AMOUNT")
             return
         
         user_id = parts[0]
@@ -575,7 +614,7 @@ async def remove_credits_process(message: types.Message, state: FSMContext):
     try:
         parts = message.text.split()
         if len(parts) != 2:
-            await message.answer("❌ Format galat hai! USER_ID AMOUNT bhejein.")
+            await message.answer("❌ Format: USER_ID AMOUNT")
             return
         
         user_id = parts[0]
@@ -735,7 +774,7 @@ async def run_attack(user_id, phone, chat_id, message_id):
     if user_id in user_attacks: del user_attacks[user_id]
 
 # ============================================
-# COMMAND HANDLERS (PRIORITY #2)
+# COMMAND HANDLERS - PRIORITY #2
 # ============================================
 
 @dp.message(CommandStart())
@@ -747,7 +786,7 @@ async def start_command(message: types.Message):
         return
     
     await message.answer(
-        "✅ <b>Bot Ready!</b>\n\nUse buttons ya commands.",
+        "✅ <b>Bot Ready!</b>",
         reply_markup=create_main_keyboard(message.from_user.id)
     )
 
@@ -782,7 +821,7 @@ async def redeem_command(message: types.Message):
         await message.answer("❌ Error! Dubara try karein.")
 
 # ============================================
-# BUTTON HANDLERS (PRIORITY #3)
+# BUTTON HANDLERS - PRIORITY #3
 # ============================================
 
 @dp.callback_query(F.data == "verify_sub")
@@ -808,20 +847,115 @@ async def admin_users_list(callback: types.CallbackQuery):
     await callback.message.edit_text(f"📊 Total Users: {total}", reply_markup=create_admin_inline_keyboard())
     await callback.answer()
 
+# --- [ LIST REDEEM CODES - FIXED WITH DETAILS ] ---
 @dp.callback_query(F.data == "adm_list_redeem")
 async def admin_list_codes(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         return
+    
     db = load_redeem_db()
     codes = db.get("codes", {})
     
     if not codes:
-        await callback.message.edit_text("📋 No codes yet", reply_markup=create_admin_inline_keyboard())
+        await callback.message.edit_text(
+            "📋 <b>REDEEM CODES</b>\n\n"
+            "❌ Abhi koi code nahi hai.\n\n"
+            "Code create karne ke liye '🎟️ Create Redeem Code' dabayein.",
+            reply_markup=create_admin_inline_keyboard()
+        )
     else:
-        text = "🎟️ <b>ALL CODES:</b>\n\n"
+        text = "🎟️ <b>ALL REDEEM CODES</b>\n\n"
+        
         for code, data in codes.items():
-            text += f"• <code>{code}</code> | 💰{data['credits']} | 👥{data['used_count']}/{data['max_uses']}\n"
-        await callback.message.edit_text(text, reply_markup=create_admin_inline_keyboard())
+            status = "✅ Active" if data.get("is_active", True) else "❌ Disabled"
+            used = data.get("used_count", 0)
+            max_uses = data.get("max_uses", 0)
+            credits = data.get("credits", 0)
+            
+            text += (
+                f"━━━━━━━━━━━━━━━━\n"
+                f"🎟️ <b>Code:</b> <code>{code}</code>\n"
+                f"💰 <b>Credits:</b> {credits}\n"
+                f"👥 <b>Used:</b> {used}/{max_uses}\n"
+                f"📊 <b>Status:</b> {status}\n"
+            )
+            
+            # Show redeemed users
+            users = data.get("redeemed_users", [])
+            if users:
+                text += f"👤 <b>Redeemed By:</b>\n"
+                for u in users:
+                    text += f"  • {u.get('username', 'Unknown')} ({u.get('time', 'N/A')})\n"
+            else:
+                text += f"👤 <b>Redeemed By:</b> None yet\n"
+            
+            text += "\n"
+        
+        # Inline buttons for each code
+        builder = InlineKeyboardBuilder()
+        for code in codes.keys():
+            # Toggle button
+            toggle_text = "❌ Disable" if codes[code].get("is_active", True) else "✅ Enable"
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"🔄 {toggle_text} {code}",
+                    callback_data=f"toggle_code_{code}"
+                )
+            )
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"🗑️ Delete {code}",
+                    callback_data=f"delete_code_{code}"
+                )
+            )
+        
+        builder.row(InlineKeyboardButton(text="🔙 Back to Admin Panel", callback_data="back_to_admin"))
+        
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+# --- [ TOGGLE CODE STATUS ] ---
+@dp.callback_query(F.data.startswith("toggle_code_"))
+async def toggle_code_status(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    
+    code = callback.data.replace("toggle_code_", "")
+    success, message = toggle_redeem_code(code)
+    
+    if success:
+        await callback.answer(message, show_alert=True)
+        # Refresh list
+        await admin_list_codes(callback)
+    else:
+        await callback.answer(message, show_alert=True)
+
+# --- [ DELETE CODE ] ---
+@dp.callback_query(F.data.startswith("delete_code_"))
+async def delete_code(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    
+    code = callback.data.replace("delete_code_", "")
+    success, message = delete_redeem_code(code)
+    
+    if success:
+        await callback.answer(message, show_alert=True)
+        # Refresh list
+        await admin_list_codes(callback)
+    else:
+        await callback.answer(message, show_alert=True)
+
+# --- [ BACK TO ADMIN ] ---
+@dp.callback_query(F.data == "back_to_admin")
+async def back_to_admin(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    
+    await callback.message.edit_text(
+        "🛠️ <b>ADMIN PANEL</b>",
+        reply_markup=create_admin_inline_keyboard()
+    )
     await callback.answer()
 
 @dp.message(F.text == "👑 Admin Panel")
@@ -887,7 +1021,7 @@ async def main_menu(message: types.Message):
     await message.answer("🏠 Main Menu", reply_markup=create_main_keyboard(message.from_user.id))
 
 # ============================================
-# FALLBACK HANDLER (PRIORITY #4 - LAST)
+# FALLBACK HANDLER - PRIORITY #4 (LAST)
 # ============================================
 
 @dp.message()
@@ -895,7 +1029,6 @@ async def fallback_handler(message: types.Message):
     user_id = message.from_user.id
     text = message.text.strip().upper()
     
-    # Redeem code direct input
     if text.isalnum() and 4 <= len(text) <= 10:
         if not await check_subscription(user_id):
             await send_join_request_message(message)
