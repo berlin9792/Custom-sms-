@@ -28,6 +28,11 @@ DEVELOPER_ID = "@theplayerror"  # Developer Telegram Username
 ADMIN_IDS = [5057489358]       # Yahan apna Admin Telegram Numeric ID dalein
 DB_FILE = "users_db.json"
 
+# --- [ FORCE JOIN CONFIGURATION ] ---
+# Yahan apne dono channels ke Username (@ ke sath) ya Numeric ID dalein
+CHANNEL_1 = "@zerotracelegit" # Replace with Channel 1
+CHANNEL_2 = "@hackkwr"  # Replace with Channel 2
+
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -81,13 +86,28 @@ def get_user_data(user_id):
     db = load_db()
     return db["users"].get(str(user_id))
 
+# --- [ SUBSCRIPTION VERIFICATION (FORCE JOIN) ] ---
+async def check_subscription(user_id: int) -> bool:
+    """Checks if user has joined both channels"""
+    # Admins are exempted from verification
+    if user_id in ADMIN_IDS:
+        return True
+    try:
+        member1 = await bot.get_chat_member(chat_id=CHANNEL_1, user_id=user_id)
+        member2 = await bot.get_chat_member(chat_id=CHANNEL_2, user_id=user_id)
+        
+        valid_statuses = ["creator", "administrator", "member"]
+        return member1.status in valid_statuses and member2.status in valid_statuses
+    except Exception as e:
+        logger.error(f"Subscription check failed: {e}. Ensure bot is Admin in channels.")
+        # Fallback to False to prevent bypass if bot is admin
+        return False
+
 # --- [ DUMMY SERVER FOR RENDER ] ---
 async def handle_ping(request):
-    """Render monitoring request receive karne ke liye route handler"""
     return web.Response(text="Bot is alive and running!", content_type="text/plain")
 
 async def start_dummy_server():
-    """Dummy Web Server jo port bind karega taaki Render build active rahe"""
     app = web.Application()
     app.router.add_get('/', handle_ping)
     app.router.add_get('/ping', handle_ping)
@@ -198,7 +218,6 @@ ULTIMATE_APIS = [
 ]
 
 async def hit_api(session, api, phone, stats):
-    """Single API Hit Handler"""
     try:
         url = api["url"]
         data = api["data"](phone) if api["data"] else None
@@ -223,7 +242,6 @@ async def hit_api(session, api, phone, stats):
     return False
 
 async def animate_message(chat_id, message_id, text_prefix="", frames=None):
-    """Animation Handler"""
     if frames is None:
         frames = ANIMATION_FRAMES
     
@@ -272,13 +290,46 @@ def create_admin_inline_keyboard():
     )
     return builder.as_markup()
 
+def create_force_join_keyboard():
+    builder = InlineKeyboardBuilder()
+    # Format usernames into valid Telegram join links
+    c1_link = f"https://t.me/{CHANNEL_1.replace('@', '')}"
+    c2_link = f"https://t.me/{CHANNEL_2.replace('@', '')}"
+    
+    builder.row(InlineKeyboardButton(text="📢 Join Channel 1", url=c1_link))
+    builder.row(InlineKeyboardButton(text="📢 Join Channel 2", url=c2_link))
+    builder.row(InlineKeyboardButton(text="✅ Verify / Joined", callback_data="verify_sub"))
+    return builder.as_markup()
+
+# --- [ FORCE JOIN HELPER MESSAGE ] ---
+async def send_join_request_message(message: types.Message):
+    join_text = f"""
+🔒 <b>ACCESS LOCKED!</b> 🔒
+
+Bot ke advance features use karne ke liye aapko humare dono official channels ko join karna zaroori hai.
+
+🔥 <b>BOT KEY FEATURES:</b>
+⚡ <b>3-in-1 Attack:</b> SMS + Voice Call + WhatsApp ek sath.
+📊 <b>Live Auto-Stats:</b> Screen automatic update hogi (Live hits & timer).
+🎁 <b>Free Trial:</b> Har naye user ko 10 Free Credits.
+🛑 <b>Instant Stop:</b> 1-click me attack turant band karne ka control.
+
+👇 Neeche dono channels join karke <b>'✅ Verify / Joined'</b> par click karein:
+    """
+    await message.answer(join_text, reply_markup=create_force_join_keyboard(), parse_mode="HTML")
+
 # --- [ USER MESSAGE HANDLERS ] ---
 
 @dp.message(CommandStart())
 async def start_command(message: types.Message):
     register_user(message.from_user.id, message.from_user.username)
-    u_data = get_user_data(message.from_user.id)
     
+    # Check force join subscription
+    if not await check_subscription(message.from_user.id):
+        await send_join_request_message(message)
+        return
+        
+    u_data = get_user_data(message.from_user.id)
     welcome_text = f"""
 🎯 <b>BOMBER BOT ME AAPKA SWAGAT HAI!</b> 🎯
 
@@ -295,8 +346,38 @@ Aapka account successfully load ho gaya hai.
     """
     await message.answer(welcome_text, reply_markup=create_main_keyboard(message.from_user.id))
 
+@dp.callback_query(F.data == "verify_sub")
+async def verify_subscription_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if await check_subscription(user_id):
+        register_user(user_id, callback.from_user.username)
+        await callback.answer("✅ Verification Successful! Sabhi features unlock ho gaye.", show_alert=True)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        
+        u_data = get_user_data(user_id)
+        welcome_text = f"""
+🎉 <b>CONGRATULATIONS! Bot Unlocked</b> 🎉
+
+Aapka account successfully verify ho gaya hai.
+
+👤 <b>Balance:</b> <code>{u_data['credits']} Credits</code>
+⚡ <b>Attack Cost:</b> 5 Credits per Attack
+
+Ab aap '🚀 Start Infinite Boom' button ka use karke instant bombing start kar sakte hain!
+        """
+        await callback.message.answer(welcome_text, reply_markup=create_main_keyboard(user_id))
+    else:
+        await callback.answer("❌ Aapne dono channels join nahi kiye hain! Kripya dono join karein.", show_alert=True)
+
 @dp.message(F.text == "👤 Meri Profile")
 async def user_profile(message: types.Message):
+    if not await check_subscription(message.from_user.id):
+        await send_join_request_message(message)
+        return
+        
     register_user(message.from_user.id, message.from_user.username)
     u_data = get_user_data(message.from_user.id)
     
@@ -315,6 +396,10 @@ async def user_profile(message: types.Message):
 
 @dp.message(F.text == "💰 Buy Credits")
 async def buy_credits_info(message: types.Message):
+    if not await check_subscription(message.from_user.id):
+        await send_join_request_message(message)
+        return
+        
     plans_text = f"""
 💎 <b>OFFICIAL RECHARGE PLANS</b> 💎
 
@@ -336,6 +421,10 @@ Agar aapke credits khatam ho gaye hain to recharge karein:
 
 @dp.message(F.text == "ℹ️ Help Guide")
 async def help_command(message: types.Message):
+    if not await check_subscription(message.from_user.id):
+        await send_join_request_message(message)
+        return
+        
     help_text = f"""
 🆘 <b>HELP & USAGE GUIDE</b> 🆘
 
@@ -521,6 +610,10 @@ async def process_user_info(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "🚀 Start Infinite Boom")
 async def start_attack_prompt(message: types.Message):
+    if not await check_subscription(message.from_user.id):
+        await send_join_request_message(message)
+        return
+        
     register_user(message.from_user.id, message.from_user.username)
     u_data = get_user_data(message.from_user.id)
     
@@ -546,6 +639,10 @@ async def handle_phone_number(message: types.Message):
     user_id = message.from_user.id
     phone = message.text
     
+    if not await check_subscription(user_id):
+        await send_join_request_message(message)
+        return
+        
     register_user(user_id, message.from_user.username)
     db = load_db()
     u_data = db["users"].get(str(user_id))
@@ -735,7 +832,7 @@ async def stream_live_stats(chat_id, message_id, user_id):
 ━━━━━━━━━━━━━━━━
 🔥 <b>Total Hits Delivered:</b> <b>{total}</b>
 
-⚡ <i>Status: Auto-updating live every 2s...</i>
+⚡ <i>Status: Auto-updating live every 2.5s...</i>
             """
             
             if live_text != last_text:
@@ -752,7 +849,6 @@ async def stream_live_stats(chat_id, message_id, user_id):
         except TelegramRetryAfter as e:
             await asyncio.sleep(e.retry_after)
         except TelegramBadRequest:
-            # Agar message badla nahi hai toh ignore karein
             await asyncio.sleep(2.5)
         except Exception as e:
             logger.error(f"Live stats stream error: {e}")
@@ -786,20 +882,28 @@ async def stop_attack(message: types.Message):
 @dp.message(F.text == "📊 Live Attack Stats")
 async def live_stats(message: types.Message):
     user_id = message.from_user.id
+    if not await check_subscription(user_id):
+        await send_join_request_message(message)
+        return
+        
     if user_id in attack_stats and user_id in user_attacks:
         live_msg = await message.answer(
             "📡 <b>Live Monitor Se Connect Ho Raha Hai...</b>\n<i>Kripya wait karein, live data load ho raha hai...</i>",
             parse_mode="HTML"
         )
-        # Background task run karega jo automatically live update karta rahega
         asyncio.create_task(stream_live_stats(message.chat.id, live_msg.message_id, user_id))
     else:
         await message.answer("ℹ️ Koi running attack data nahi mila.")
 
 @dp.message(F.text == "📊 Check Stats")
 async def check_stats(message: types.Message):
-    register_user(message.from_user.id, message.from_user.username)
-    u_data = get_user_data(message.from_user.id)
+    user_id = message.from_user.id
+    if not await check_subscription(user_id):
+        await send_join_request_message(message)
+        return
+        
+    register_user(user_id, message.from_user.username)
+    u_data = get_user_data(user_id)
     await message.answer(
         f"📊 <b>ATTACK HISTORY & BALANCE</b>\n\n"
         f"👤 Account: {u_data['username']}\n"
@@ -809,6 +913,10 @@ async def check_stats(message: types.Message):
 
 @dp.message(F.text == "🏠 Main Menu")
 async def main_menu(message: types.Message):
+    if not await check_subscription(message.from_user.id):
+        await send_join_request_message(message)
+        return
+        
     await message.answer(
         "🏠 <b>Main Menu</b>\nNeeche diye gaye option select karein:",
         reply_markup=create_main_keyboard(message.from_user.id)
@@ -816,6 +924,10 @@ async def main_menu(message: types.Message):
 
 @dp.message()
 async def handle_other_messages(message: types.Message):
+    if not await check_subscription(message.from_user.id):
+        await send_join_request_message(message)
+        return
+        
     await message.answer(
         "❓ <b>Invalid Input!</b>\n\nKripya buttons ka use karein ya 10-digit number bhejein.",
         reply_markup=create_main_keyboard(message.from_user.id),
@@ -827,7 +939,6 @@ async def main():
     logger.info("Bot start ho raha hai...")
     logger.info(f"Loaded APIs: {len(ULTIMATE_APIS)}")
     
-    # Render ke liye dummy HTTP server start kar rahe hain
     try:
         await start_dummy_server()
     except Exception as e:
