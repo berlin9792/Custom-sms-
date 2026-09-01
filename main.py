@@ -15,6 +15,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 import logging
 
 # Logging configuration
@@ -94,7 +95,6 @@ async def start_dummy_server():
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # Render default port setting uthayega, local testing ke liye 8080 use hoga
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
@@ -701,6 +701,74 @@ async def run_attack(user_id, phone, chat_id, message_id):
     if user_id in stop_signals: del stop_signals[user_id]
     if user_id in user_attacks: del user_attacks[user_id]
 
+# --- [ REAL-TIME LIVE STATS STREAM HANDLER ] ---
+async def stream_live_stats(chat_id, message_id, user_id):
+    """Automatic background live status updater with dynamic seconds count"""
+    last_text = ""
+    
+    while user_id in user_attacks and not stop_signals.get(user_id, False):
+        try:
+            stats = attack_stats.get(user_id, {})
+            attack_info = user_attacks.get(user_id, {})
+            
+            calls = stats.get('Call', 0)
+            sms = stats.get('SMS', 0)
+            wa = stats.get('WhatsApp', 0)
+            total = calls + sms + wa
+            cycles = stats.get('cycles', 0)
+            
+            start_time = attack_info.get('start_time', time.time())
+            elapsed = int(time.time() - start_time)
+            phone = attack_info.get('phone', 'N/A')
+            
+            live_text = f"""
+🔴 <b>LIVE REAL-TIME ATTACK MONITOR</b>
+
+📱 <b>Target:</b> <code>{phone}</code>
+⏱️ <b>Running Time:</b> <code>{elapsed} seconds</code>
+🔄 <b>Cycles Completed:</b> <code>{cycles}</code>
+
+📊 <b>LIVE HIT COUNTERS:</b>
+📞 <b>Calls Sent:</b> {calls}
+📩 <b>SMS Sent:</b> {sms}
+💬 <b>WhatsApp Sent:</b> {wa}
+━━━━━━━━━━━━━━━━
+🔥 <b>Total Hits Delivered:</b> <b>{total}</b>
+
+⚡ <i>Status: Auto-updating live every 2s...</i>
+            """
+            
+            if live_text != last_text:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=live_text,
+                    parse_mode="HTML"
+                )
+                last_text = live_text
+                
+            await asyncio.sleep(2.5)  # Telegram API limit safe delay
+            
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+        except TelegramBadRequest:
+            # Agar message badla nahi hai toh ignore karein
+            await asyncio.sleep(2.5)
+        except Exception as e:
+            logger.error(f"Live stats stream error: {e}")
+            await asyncio.sleep(3)
+            
+    # Attack Khatam hone par Final Display
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text="⏹️ <b>Live Monitor Ended:</b> Attack stop ho chuka hai ya complete ho gaya hai.",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
 # --- [ NAVIGATION & CONTROLS ] ---
 
 @dp.message(F.text == "🛑 STOP ATTACK")
@@ -718,16 +786,13 @@ async def stop_attack(message: types.Message):
 @dp.message(F.text == "📊 Live Attack Stats")
 async def live_stats(message: types.Message):
     user_id = message.from_user.id
-    if user_id in attack_stats:
-        stats = attack_stats[user_id]
-        total = stats.get('Call', 0) + stats.get('SMS', 0) + stats.get('WhatsApp', 0)
-        await message.answer(
-            f"📊 <b>CURRENT ATTACK STATS</b>\n\n"
-            f"📞 Calls: {stats.get('Call', 0)}\n"
-            f"📩 SMS: {stats.get('SMS', 0)}\n"
-            f"💬 WhatsApp: {stats.get('WhatsApp', 0)}\n"
-            f"🔥 Combined: {total}"
+    if user_id in attack_stats and user_id in user_attacks:
+        live_msg = await message.answer(
+            "📡 <b>Live Monitor Se Connect Ho Raha Hai...</b>\n<i>Kripya wait karein, live data load ho raha hai...</i>",
+            parse_mode="HTML"
         )
+        # Background task run karega jo automatically live update karta rahega
+        asyncio.create_task(stream_live_stats(message.chat.id, live_msg.message_id, user_id))
     else:
         await message.answer("ℹ️ Koi running attack data nahi mila.")
 
