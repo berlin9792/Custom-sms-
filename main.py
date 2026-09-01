@@ -2,6 +2,7 @@
 
 import asyncio
 import aiohttp
+from aiohttp import web  # Dummy Server ke liye import kiya hai
 import random
 import time
 import json
@@ -78,6 +79,26 @@ def register_user(user_id, username):
 def get_user_data(user_id):
     db = load_db()
     return db["users"].get(str(user_id))
+
+# --- [ DUMMY SERVER FOR RENDER ] ---
+async def handle_ping(request):
+    """Render monitoring request receive karne ke liye route handler"""
+    return web.Response(text="Bot is alive and running!", content_type="text/plain")
+
+async def start_dummy_server():
+    """Dummy Web Server jo port bind karega taaki Render build active rahe"""
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    app.router.add_get('/ping', handle_ping)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render default port setting uthayega, local testing ke liye 8080 use hoga
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Dummy Web Server started on port: {port}")
 
 # --- [ ANIMATION FRAMES ] ---
 ANIMATION_FRAMES = [
@@ -740,6 +761,13 @@ async def handle_other_messages(message: types.Message):
 async def main():
     logger.info("Bot start ho raha hai...")
     logger.info(f"Loaded APIs: {len(ULTIMATE_APIS)}")
+    
+    # Render ke liye dummy HTTP server start kar rahe hain
+    try:
+        await start_dummy_server()
+    except Exception as e:
+        logger.error(f"Dummy Server start karne me dikkat aayi: {e}")
+        
     try:
         await dp.start_polling(bot)
     except Exception as e:
