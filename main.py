@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # --- [ CONFIGURATION ] ---
 BOT_TOKEN = "8927679179:AAHSovin2ewne_VUKY7FVEA4lEz6figrVZ0"
 DEVELOPER_ID = "@theplayerror"
-ADMIN_IDS = [5057489358]  # Admin Telegram IDs
+ADMIN_IDS = [5057489358]
 DB_FILE = "users_db.json"
 REDEEM_DB_FILE = "redeem_codes.json"
 
@@ -72,12 +72,10 @@ def save_redeem_db(data):
         logger.error(f"Redeem database save error: {e}")
 
 def generate_redeem_code(length=6):
-    """Generate random alphanumeric code"""
     characters = string.ascii_uppercase + string.digits
     return ''.join(random.choice(characters) for _ in range(length))
 
 def create_redeem_code(code, credits, max_uses):
-    """Create new redeem code"""
     db = load_redeem_db()
     db["codes"][code] = {
         "credits": credits,
@@ -90,7 +88,6 @@ def create_redeem_code(code, credits, max_uses):
     save_redeem_db(db)
 
 def validate_redeem_code(code, user_id):
-    """Validate and redeem code for user"""
     db = load_redeem_db()
     if code not in db["codes"]:
         return False, "Invalid code! Yeh code exist nahi karta."
@@ -102,12 +99,10 @@ def validate_redeem_code(code, user_id):
     if str(user_id) in code_data["redeemed_by"]:
         return False, "Aap yeh code pehle hi use kar chuke ho."
     
-    # Redeem code
     code_data["used_count"] += 1
     code_data["redeemed_by"].append(str(user_id))
     save_redeem_db(db)
     
-    # Add credits to user
     user_db = load_db()
     if str(user_id) in user_db["users"]:
         user_db["users"][str(user_id)]["credits"] += code_data["credits"]
@@ -137,7 +132,6 @@ def save_db(data):
 def register_user(user_id, username):
     db = load_db()
     uid = str(user_id)
-    
     is_admin = user_id in ADMIN_IDS
     
     if uid not in db["users"]:
@@ -161,7 +155,6 @@ def get_user_data(user_id):
     return db["users"].get(str(user_id))
 
 def is_admin(user_id):
-    """Check if user is admin"""
     return user_id in ADMIN_IDS
 
 # --- [ SUBSCRIPTION VERIFICATION ] ---
@@ -410,13 +403,11 @@ async def start_command(message: types.Message):
         welcome_text = f"""
 👑 <b>ADMIN ACCESS GRANTED!</b> 👑
 
-Aapka admin account successfully load ho gaya hai.
-
 ⚡ <b>Status:</b> Unlimited Access (No Credit System)
 🚀 <b>Attack:</b> Kabhi bhi, kitni bhi baar!
 
 📌 <b>Admin Features:</b>
-• Unlimited Attacks (No Credits Required)
+• Unlimited Attacks
 • User Management
 • Broadcast Messages
 • Redeem Code Generation
@@ -428,22 +419,16 @@ Aapka admin account successfully load ho gaya hai.
         welcome_text = f"""
 🎯 <b>BOMBER BOT ME AAPKA SWAGAT HAI!</b> 🎯
 
-Aapka account successfully load ho gaya hai.
-
-👤 <b>Aapka Balance:</b> <code>{u_data['credits']} Credits</code>
+👤 <b>Balance:</b> <code>{u_data['credits']} Credits</code>
 ⚡ <b>Attack Cost:</b> 5 Credits per Attack
-🎟️ <b>Redeem Code:</b> /redeem CODE se credits paayein
+🎟️ <b>Redeem:</b> /redeem CODE
 
-📌 <b>Kaise Use Karein:</b>
-• Direct 10-digit number type karke bhejein.
-• Ya fir neeche diye gaye menu buttons use karein.
-
-👨‍💻 <b>Developer Support:</b> {DEVELOPER_ID}
+👨‍💻 <b>Support:</b> {DEVELOPER_ID}
         """
     
     await message.answer(welcome_text, reply_markup=create_main_keyboard(message.from_user.id))
 
-# --- [ REDEEM COMMAND HANDLER ] ---
+# --- [ REDEEM COMMAND ] ---
 @dp.message(Command("redeem"))
 async def redeem_command(message: types.Message):
     user_id = message.from_user.id
@@ -453,76 +438,54 @@ async def redeem_command(message: types.Message):
         return
     
     if is_admin(user_id):
-        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai! Aapke paas unlimited access hai.")
+        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai!")
         return
     
     try:
         parts = message.text.split()
         if len(parts) != 2:
             await message.answer(
-                "❌ <b>Usage:</b> <code>/redeem CODE</code>\n\n"
+                "❌ <b>Usage:</b> <code>/redeem CODE</code>\n"
                 "Example: <code>/redeem ABC123</code>",
                 parse_mode="HTML"
             )
             return
         
         code = parts[1].upper()
-        
-        if not code.isalnum() or len(code) < 4 or len(code) > 10:
-            await message.answer("❌ Invalid code format! Code 4-10 alphanumeric characters ka hona chahiye.")
-            return
-        
         register_user(user_id, message.from_user.username)
-        
         success, response = validate_redeem_code(code, user_id)
         
         if success:
             u_data = get_user_data(user_id)
             await message.answer(
-                f"🎉 <b>SUCCESS!</b>\n\n"
-                f"{response}\n"
+                f"🎉 {response}\n\n"
                 f"💰 <b>New Balance:</b> <code>{u_data['credits']} Credits</code>",
-                parse_mode="HTML",
-                reply_markup=create_main_keyboard(user_id)
+                parse_mode="HTML"
             )
         else:
-            await message.answer(
-                f"❌ <b>Error:</b> {response}",
-                parse_mode="HTML",
-                reply_markup=create_main_keyboard(user_id)
-            )
+            await message.answer(f"❌ {response}", parse_mode="HTML")
             
     except Exception as e:
-        logger.error(f"Redeem command error: {e}")
-        await message.answer("❌ Kuch error aa gaya! Kripya dubara try karein.")
+        logger.error(f"Redeem error: {e}")
+        await message.answer("❌ Error! Dubara try karein.")
 
 @dp.callback_query(F.data == "verify_sub")
 async def verify_subscription_callback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     if await check_subscription(user_id):
         register_user(user_id, callback.from_user.username)
-        await callback.answer("✅ Verification Successful! Sabhi features unlock ho gaye.", show_alert=True)
+        await callback.answer("✅ Verified!", show_alert=True)
         try:
             await callback.message.delete()
         except Exception:
             pass
         
-        u_data = get_user_data(user_id)
-        if is_admin(user_id):
-            welcome_text = f"👑 <b>ADMIN ACCESS!</b>\n\nAapke paas unlimited access hai!"
-        else:
-            welcome_text = f"""
-🎉 <b>CONGRATULATIONS! Bot Unlocked</b> 🎉
-
-👤 <b>Balance:</b> <code>{u_data['credits']} Credits</code>
-⚡ <b>Attack Cost:</b> 5 Credits per Attack
-
-Ab aap '🚀 Start Infinite Boom' button ka use karke instant bombing start kar sakte hain!
-            """
-        
-        await callback.message.answer(welcome_text, reply_markup=create_main_keyboard(user_id))
+        await callback.message.answer(
+            "✅ <b>Bot Unlocked!</b>",
+            reply_markup=create_main_keyboard(user_id)
+        )
     else:
-        await callback.answer("❌ Aapne channel join nahi kiya hai! Kripya channel join karein.", show_alert=True)
+        await callback.answer("❌ Channel join nahi kiya!", show_alert=True)
 
 @dp.message(F.text == "👤 Meri Profile")
 async def user_profile(message: types.Message):
@@ -537,103 +500,65 @@ async def user_profile(message: types.Message):
         profile_text = f"""
 👑 <b>ADMIN PROFILE</b>
 
-🆔 <b>User ID:</b> <code>{message.from_user.id}</code>
+🆔 <b>ID:</b> <code>{message.from_user.id}</code>
 👤 <b>Username:</b> {u_data['username']}
 ⚡ <b>Status:</b> Unlimited Access
-🚀 <b>Total Attacks Done:</b> {u_data['total_attacks']}
-📅 <b>Account Created:</b> {u_data['joined_at']}
-
-ℹ️ <i>Admin ko koi credit limit nahi hai.</i>
+🚀 <b>Total Attacks:</b> {u_data['total_attacks']}
         """
     else:
         profile_text = f"""
-👤 <b>AAPKI PROFILE DETAILS</b>
+👤 <b>PROFILE</b>
 
-🆔 <b>User ID:</b> <code>{message.from_user.id}</code>
+🆔 <b>ID:</b> <code>{message.from_user.id}</code>
 👤 <b>Username:</b> {u_data['username']}
-💰 <b>Available Credits:</b> <code>{u_data['credits']}</code>
-🚀 <b>Total Attacks Done:</b> {u_data['total_attacks']}
-📅 <b>Account Created:</b> {u_data['joined_at']}
-
-ℹ️ <i>Ek attack start karne par 5 credits deduct hote hain.</i>
+💰 <b>Credits:</b> <code>{u_data['credits']}</code>
+🚀 <b>Total Attacks:</b> {u_data['total_attacks']}
         """
     
     await message.answer(profile_text, parse_mode="HTML")
 
 @dp.message(F.text == "💰 Buy Credits")
 async def buy_credits_info(message: types.Message):
-    if not await check_subscription(message.from_user.id):
-        await send_join_request_message(message)
-        return
-    
     if is_admin(message.from_user.id):
-        await message.answer("👑 Admin ke liye credits ki zaroorat nahi hai! Aapke paas unlimited access hai.")
-        return
-        
-    plans_text = f"""
-💎 <b>OFFICIAL RECHARGE PLANS</b> 💎
-
-💵 <b>Plan ₹30:</b> 50 Credits (10 Attacks)
-💵 <b>Plan ₹50:</b> 90 Credits (18 Attacks)
-💵 <b>Plan ₹70:</b> 130 Credits (26 Attacks)
-
-📥 <b>Recharge:</b> {DEVELOPER_ID}
-🎟️ <b>Redeem:</b> /redeem CODE
-    """
-    await message.answer(plans_text, parse_mode="HTML")
-
-@dp.message(F.text == "🎟️ Redeem Code")
-async def redeem_code_prompt(message: types.Message):
-    if not await check_subscription(message.from_user.id):
-        await send_join_request_message(message)
-        return
-    
-    if is_admin(message.from_user.id):
-        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai!")
+        await message.answer("👑 Admin ko credits ki zaroorat nahi!")
         return
         
     await message.answer(
-        "🎟️ <b>REDEEM CODE SYSTEM</b>\n\n"
-        "Redeem code use karne ke 2 tarike hain:\n\n"
-        "1️⃣ <b>Command se:</b>\n"
-        "<code>/redeem CODE</code>\n\n"
-        "2️⃣ <b>Direct enter karein:</b>\n"
-        "Bas code type karke bhej dein\n\n"
-        "<i>Code admin se contact karke paayein</i>",
-        parse_mode="HTML"
+        f"💎 <b>RECHARGE PLANS</b>\n\n"
+        f"₹30 = 50 Credits\n"
+        f"₹50 = 90 Credits\n"
+        f"₹70 = 130 Credits\n\n"
+        f"📥 Contact: {DEVELOPER_ID}"
+    )
+
+@dp.message(F.text == "🎟️ Redeem Code")
+async def redeem_code_prompt(message: types.Message):
+    if is_admin(message.from_user.id):
+        await message.answer("👑 Admin ko redeem ki zaroorat nahi!")
+        return
+        
+    await message.answer(
+        "🎟️ <b>REDEEM</b>\n\n"
+        "Use: <code>/redeem CODE</code>\n"
+        "Or direct code type karein"
     )
 
 @dp.message(F.text == "ℹ️ Help Guide")
 async def help_command(message: types.Message):
-    if not await check_subscription(message.from_user.id):
-        await send_join_request_message(message)
-        return
-    
-    if is_admin(message.from_user.id):
-        help_text = f"""
-👑 <b>ADMIN HELP GUIDE</b> 👑
+    help_text = f"""
+🆘 <b>HELP</b>
 
-1. <b>'🚀 Start Infinite Boom'</b> - Unlimited attacks
-2. <b>'👑 Admin Panel'</b> - User management, credits, redeem codes
+1. '🚀 Start Infinite Boom' click karein
+2. 10-digit number bhejein
+3. Attack start ho jayega
 
-Admin ke liye koi credit system nahi hai!
-        """
-    else:
-        help_text = f"""
-🆘 <b>HELP & USAGE GUIDE</b> 🆘
+🎟️ Redeem: <code>/redeem CODE</code>
 
-1. <b>'🚀 Start Infinite Boom'</b> par click karein.
-2. Target ka 10-digit mobile number bhejein.
-3. Attack start hote hi <b>5 credits</b> cut honge.
+📞 Contact: {DEVELOPER_ID}
+    """
+    await message.answer(help_text)
 
-🎟️ <b>Redeem:</b> <code>/redeem CODE</code>
-
-📞 <b>Contact:</b> {DEVELOPER_ID}
-        """
-    
-    await message.answer(help_text, parse_mode="HTML")
-
-# --- [ ADMIN PANEL & FSM HANDLERS ] ---
+# --- [ ADMIN PANEL ] ---
 
 @dp.message(F.text == "👑 Admin Panel")
 async def admin_panel(message: types.Message):
@@ -641,9 +566,8 @@ async def admin_panel(message: types.Message):
         return
     
     await message.answer(
-        "🛠️ <b>ADMIN CONFIGURATION PANEL</b>\n\nNeeche diye gaye buttons se bot manage karein:",
-        reply_markup=create_admin_inline_keyboard(),
-        parse_mode="HTML"
+        "🛠️ <b>ADMIN PANEL</b>",
+        reply_markup=create_admin_inline_keyboard()
     )
 
 @dp.callback_query(F.data == "adm_users")
@@ -651,15 +575,9 @@ async def admin_total_users(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         return
     db = load_db()
-    total_users = len(db["users"])
-    
-    users_list = "👥 <b>Recent Users List:</b>\n"
-    for uid, data in list(db["users"].items())[-10:]:
-        credits_display = "∞" if data.get('is_admin', False) else data['credits']
-        users_list += f"• <code>{uid}</code> | {data['username']} | Cr: <b>{credits_display}</b>\n"
-        
+    total = len(db["users"])
     await callback.message.edit_text(
-        f"📊 <b>Total Registered Users:</b> {total_users}\n\n{users_list}",
+        f"📊 <b>Total Users:</b> {total}",
         reply_markup=create_admin_inline_keyboard()
     )
     await callback.answer()
@@ -669,7 +587,7 @@ async def admin_broadcast_prompt(callback: types.CallbackQuery, state: FSMContex
     if not is_admin(callback.from_user.id):
         return
     await state.set_state(AdminStates.waiting_for_broadcast)
-    await callback.message.answer("📢 Sabhi users ko broadcast karne wala message bhejiye:")
+    await callback.message.answer("📢 Broadcast message bhejein:")
     await callback.answer()
 
 @dp.message(AdminStates.waiting_for_broadcast)
@@ -679,36 +597,25 @@ async def process_broadcast(message: types.Message, state: FSMContext):
         return
     
     db = load_db()
-    all_users = list(db["users"].keys())
     success = 0
     failed = 0
     
-    status_msg = await message.answer("⏳ <i>Broadcast bheja ja raha hai...</i>")
-    
-    for uid in all_users:
+    for uid in db["users"]:
         try:
-            await bot.send_message(chat_id=int(uid), text=message.text, parse_mode="HTML")
+            await bot.send_message(chat_id=int(uid), text=message.text)
             success += 1
             await asyncio.sleep(0.05)
         except Exception:
             failed += 1
-            
-    await status_msg.edit_text(
-        f"📢 <b>BROADCAST REPORT:</b>\n\n"
-        f"✅ Success: {success}\n"
-        f"❌ Failed: {failed}"
-    )
+    
+    await message.answer(f"📢 <b>Broadcast:</b> ✅ {success} | ❌ {failed}")
 
 @dp.callback_query(F.data == "adm_give_credits")
 async def admin_add_credits_prompt(callback: types.CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
         return
     await state.set_state(AdminStates.waiting_for_add_credits)
-    await callback.message.answer(
-        "➕ <b>ADD CREDITS</b>\n\n"
-        "Format: <code>[User_ID] [Credits_Amount]</code>\n"
-        "Example: <code>5057489358 100</code>"
-    )
+    await callback.message.answer("➕ Format: <code>USER_ID AMOUNT</code>")
     await callback.answer()
 
 @dp.message(AdminStates.waiting_for_add_credits)
@@ -722,29 +629,21 @@ async def process_add_credits(message: types.Message, state: FSMContext):
         amount = int(amount)
         
         db = load_db()
-        if user_id in db["users"]:
-            if db["users"][user_id].get('is_admin', False):
-                await message.answer("❌ Admin user ke paas already unlimited credits hain!")
-                return
-                
+        if user_id in db["users"] and not db["users"][user_id].get('is_admin', False):
             db["users"][user_id]["credits"] += amount
             save_db(db)
-            await message.answer(f"✅ User <code>{user_id}</code> ko <b>{amount} Credits</b> mil gaye.")
+            await message.answer(f"✅ {amount} Credits added to {user_id}")
         else:
-            await message.answer("❌ User nahi mila!")
+            await message.answer("❌ User nahi mila ya admin hai!")
     except Exception:
-        await message.answer("❌ Invalid Format!")
+        await message.answer("❌ Invalid format!")
 
 @dp.callback_query(F.data == "adm_remove_credits")
 async def admin_remove_credits_prompt(callback: types.CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
         return
     await state.set_state(AdminStates.waiting_for_remove_credits)
-    await callback.message.answer(
-        "➖ <b>REMOVE CREDITS</b>\n\n"
-        "Format: <code>[User_ID] [Amount]</code>\n"
-        "Example: <code>5057489358 50</code>"
-    )
+    await callback.message.answer("➖ Format: <code>USER_ID AMOUNT</code>")
     await callback.answer()
 
 @dp.message(AdminStates.waiting_for_remove_credits)
@@ -758,16 +657,12 @@ async def process_remove_credits(message: types.Message, state: FSMContext):
         amount = int(amount)
         
         db = load_db()
-        if user_id in db["users"]:
-            if db["users"][user_id].get('is_admin', False):
-                await message.answer("❌ Admin user ke credits remove nahi kar sakte!")
-                return
-                
+        if user_id in db["users"] and not db["users"][user_id].get('is_admin', False):
             db["users"][user_id]["credits"] = max(0, db["users"][user_id]["credits"] - amount)
             save_db(db)
-            await message.answer(f"✅ User <code>{user_id}</code> se <b>{amount} Credits</b> cut gaye.")
+            await message.answer(f"✅ {amount} Credits removed from {user_id}")
         else:
-            await message.answer("❌ User nahi mila!")
+            await message.answer("❌ User nahi mila ya admin hai!")
     except Exception:
         await message.answer("❌ Invalid format!")
 
@@ -788,24 +683,13 @@ async def process_user_info(message: types.Message, state: FSMContext):
     uid = message.text.strip()
     db = load_db()
     if uid in db["users"]:
-        u_data = db["users"][uid]
-        credits_display = "∞ (Unlimited)" if u_data.get('is_admin', False) else u_data['credits']
-        user_type = "👑 Admin" if u_data.get('is_admin', False) else "👤 User"
-        
-        info_text = f"""
-👤 <b>USER DETAILS:</b>
-
-🆔 <b>ID:</b> <code>{uid}</code>
-👤 <b>Username:</b> {u_data['username']}
-📊 <b>Type:</b> {user_type}
-💰 <b>Credits:</b> <code>{credits_display}</code>
-🚀 <b>Attacks:</b> {u_data['total_attacks']}
-        """
-        await message.answer(info_text)
+        u = db["users"][uid]
+        credits = "∞" if u.get('is_admin', False) else u['credits']
+        await message.answer(f"👤 <b>User:</b> {u['username']}\n💰 <b>Credits:</b> {credits}")
     else:
         await message.answer("❌ User nahi mila!")
 
-# --- [ REDEEM CODE ADMIN HANDLERS - FIXED ] ---
+# --- [ REDEEM CODE CREATION - FIXED FSM ] ---
 
 @dp.callback_query(F.data == "adm_create_redeem")
 async def admin_create_redeem_prompt(callback: types.CallbackQuery, state: FSMContext):
@@ -813,14 +697,14 @@ async def admin_create_redeem_prompt(callback: types.CallbackQuery, state: FSMCo
         await callback.answer("❌ Admin only!", show_alert=True)
         return
     
-    # Create code button press hote hi FSM start
+    # IMPORTANT: Set state properly
     await state.set_state(AdminStates.waiting_for_redeem_code)
     
     await callback.message.answer(
         "🎟️ <b>CREATE REDEEM CODE</b>\n\n"
-        "Step 1: Code enter karein (4-10 alphanumeric):\n"
-        "<i>Example: BOMB50</i>\n"
-        "Ya <code>RANDOM</code> type karein auto-generate ke liye"
+        "<b>Step 1:</b> Code enter karein (4-10 alphanumeric):\n"
+        "<i>Ya RANDOM type karein auto-generate ke liye</i>",
+        parse_mode="HTML"
     )
     await callback.answer()
 
@@ -835,17 +719,17 @@ async def process_redeem_code_input(message: types.Message, state: FSMContext):
         code = generate_redeem_code(6)
     else:
         if not code_input.isalnum() or len(code_input) < 4 or len(code_input) > 10:
-            await message.answer("❌ Invalid code! 4-10 alphanumeric characters use karein.")
+            await message.answer("❌ Invalid code! 4-10 alphanumeric use karein.")
             return
         code = code_input
     
-    # Store code in FSM
     await state.update_data(redeem_code=code)
     await state.set_state(AdminStates.waiting_for_redeem_amount)
     
     await message.answer(
         f"✅ Code: <b>{code}</b>\n\n"
-        "Step 2: Credits amount enter karein:"
+        f"<b>Step 2:</b> Credits amount enter karein:",
+        parse_mode="HTML"
     )
 
 @dp.message(AdminStates.waiting_for_redeem_amount)
@@ -859,16 +743,16 @@ async def process_redeem_amount(message: types.Message, state: FSMContext):
             await message.answer("❌ Amount positive hona chahiye!")
             return
         
-        # Store amount in FSM
         await state.update_data(redeem_amount=amount)
         await state.set_state(AdminStates.waiting_for_redeem_limit)
         
         await message.answer(
             f"✅ Amount: <b>{amount} Credits</b>\n\n"
-            "Step 3: User limit enter karein (kitne users use kar sakte hain):"
+            f"<b>Step 3:</b> User limit enter karein:",
+            parse_mode="HTML"
         )
     except ValueError:
-        await message.answer("❌ Invalid amount! Number enter karein.")
+        await message.answer("❌ Number enter karein!")
 
 @dp.message(AdminStates.waiting_for_redeem_limit)
 async def process_redeem_limit(message: types.Message, state: FSMContext):
@@ -881,28 +765,25 @@ async def process_redeem_limit(message: types.Message, state: FSMContext):
             await message.answer("❌ Limit positive honi chahiye!")
             return
         
-        # Get all data from FSM
         data = await state.get_data()
         code = data.get('redeem_code')
         amount = data.get('redeem_amount')
         
-        # Create redeem code
         create_redeem_code(code, amount, max_uses)
         
-        # Clear FSM state - IMPORTANT
+        # IMPORTANT: Clear state
         await state.clear()
         
         await message.answer(
-            f"🎉 <b>REDEEM CODE CREATED SUCCESSFULLY!</b>\n\n"
-            f"🎟️ <b>Code:</b> <code>{code}</code>\n"
-            f"💰 <b>Credits:</b> {amount}\n"
-            f"👥 <b>User Limit:</b> {max_uses}\n\n"
-            f"Users ise use kar sakte hain:\n"
-            f"<code>/redeem {code}</code>",
+            f"🎉 <b>CODE CREATED!</b>\n\n"
+            f"🎟️ Code: <code>{code}</code>\n"
+            f"💰 Credits: {amount}\n"
+            f"👥 Limit: {max_uses}\n\n"
+            f"Use: <code>/redeem {code}</code>",
             reply_markup=create_main_keyboard(message.from_user.id)
         )
     except ValueError:
-        await message.answer("❌ Invalid limit! Number enter karein.")
+        await message.answer("❌ Number enter karein!")
     except Exception as e:
         logger.error(f"Redeem limit error: {e}")
         await state.clear()
@@ -918,22 +799,15 @@ async def admin_list_redeem_codes(callback: types.CallbackQuery):
     
     if not codes:
         await callback.message.edit_text(
-            "📋 <b>REDEEM CODES LIST</b>\n\n❌ Abhi koi code nahi hai.",
+            "📋 <b>Codes:</b> None",
             reply_markup=create_admin_inline_keyboard()
         )
     else:
-        codes_text = "🎟️ <b>ALL REDEEM CODES</b>\n\n"
+        text = "🎟️ <b>ALL CODES:</b>\n\n"
         for code, data in codes.items():
-            codes_text += (
-                f"• <b>Code:</b> <code>{code}</code>\n"
-                f"  💰 Credits: <b>{data['credits']}</b> | "
-                f"👥 Used: <b>{data['used_count']}/{data['max_uses']}</b>\n\n"
-            )
+            text += f"• <code>{code}</code> | 💰{data['credits']} | 👥{data['used_count']}/{data['max_uses']}\n"
         
-        await callback.message.edit_text(
-            codes_text,
-            reply_markup=create_admin_inline_keyboard()
-        )
+        await callback.message.edit_text(text, reply_markup=create_admin_inline_keyboard())
     await callback.answer()
 
 # --- [ ATTACK LOGIC ] ---
@@ -948,21 +822,11 @@ async def start_attack_prompt(message: types.Message, state: FSMContext):
     u_data = get_user_data(message.from_user.id)
     
     if not is_admin(message.from_user.id) and u_data["credits"] < 5:
-        await message.answer(
-            f"❌ <b>Insufficient Credits!</b>\n\n"
-            f"Aapke pass <code>{u_data['credits']} Credits</code> hain.\n"
-            f"Minimum <b>5 Credits</b> chahiye.",
-            reply_markup=create_main_keyboard(message.from_user.id)
-        )
+        await message.answer("❌ <b>Low Credits!</b> Minimum 5 chahiye.")
         return
     
     await state.set_state(AdminStates.waiting_for_phone_number)
-    
-    await message.answer(
-        "📱 <b>Target ka 10-digit mobile number enter karein:</b>\n\n"
-        "Example: <code>9876543210</code>",
-        parse_mode="HTML"
-    )
+    await message.answer("📱 <b>10-digit number bhejein:</b>")
 
 @dp.message(AdminStates.waiting_for_phone_number)
 async def handle_phone_number(message: types.Message, state: FSMContext):
@@ -971,15 +835,8 @@ async def handle_phone_number(message: types.Message, state: FSMContext):
     
     await state.clear()
     
-    if not await check_subscription(user_id):
-        await send_join_request_message(message)
-        return
-    
     if not phone.isdigit() or len(phone) != 10:
-        await message.answer(
-            "❌ <b>Invalid Number!</b>\n10-digit number enter karein.",
-            reply_markup=create_main_keyboard(user_id)
-        )
+        await message.answer("❌ 10-digit number bhejein!")
         return
         
     register_user(user_id, message.from_user.username)
@@ -987,24 +844,18 @@ async def handle_phone_number(message: types.Message, state: FSMContext):
     u_data = db["users"].get(str(user_id))
     
     if not is_admin(user_id) and u_data["credits"] < 5:
-        await message.answer(
-            f"❌ <b>Low Balance!</b>\nAapke pass {u_data['credits']} credits hain.",
-            reply_markup=create_main_keyboard(user_id)
-        )
+        await message.answer("❌ Low credits!")
         return
     
     if not phone.startswith(('6', '7', '8', '9')):
-        await message.answer(
-            "❌ <b>Galat Number!</b>\nIndian number 6/7/8/9 se shuru hona chahiye.",
-            reply_markup=create_main_keyboard(user_id)
-        )
+        await message.answer("❌ Indian number 6/7/8/9 se shuru hona chahiye!")
         return
     
     if not is_admin(user_id):
         db["users"][str(user_id)]["credits"] -= 5
         credits_left = db["users"][str(user_id)]["credits"]
     else:
-        credits_left = "∞ (Unlimited)"
+        credits_left = "∞"
     
     db["users"][str(user_id)]["total_attacks"] += 1
     save_db(db)
@@ -1020,31 +871,18 @@ async def handle_phone_number(message: types.Message, state: FSMContext):
         'Call': 0,
         'SMS': 0,
         'WhatsApp': 0,
-        'cycles': 0,
-        'last_update': time.strftime('%H:%M:%S')
+        'cycles': 0
     }
     
-    if is_admin(user_id):
-        start_msg = await message.answer(
-            "👑 <b>ADMIN ATTACK INITIALIZING...</b>\n\n"
-            f"🎯 <b>Target:</b> <code>{phone}</code>\n"
-            f"⚡ <b>Unlimited Access</b>\n\n"
-            "🚀 Server connect ho raha hai...",
-            parse_mode="HTML",
-            reply_markup=create_stop_keyboard()
-        )
-    else:
-        start_msg = await message.answer(
-            "🎯 <b>ATTACK INITIALIZING...</b>\n\n"
-            f"🎯 <b>Target:</b> <code>{phone}</code>\n"
-            f"⚡ <b>5 Credits Deducted</b> (Left: {credits_left})\n\n"
-            "🚀 Server connect ho raha hai...",
-            parse_mode="HTML",
-            reply_markup=create_stop_keyboard()
-        )
+    start_msg = await message.answer(
+        f"🎯 <b>ATTACK STARTING...</b>\n\n"
+        f"📱 Target: <code>{phone}</code>\n"
+        f"⚡ Credits Left: {credits_left}",
+        parse_mode="HTML",
+        reply_markup=create_stop_keyboard()
+    )
     
     await animate_message(message.chat.id, start_msg.message_id, f"Target: {phone}")
-    
     asyncio.create_task(run_attack(user_id, phone, message.chat.id, start_msg.message_id))
 
 async def run_attack(user_id, phone, chat_id, message_id):
@@ -1058,7 +896,6 @@ async def run_attack(user_id, phone, chat_id, message_id):
         while not stop_signals.get(user_id, False):
             try:
                 cycle_count += 1
-                attack_info['cycles'] = cycle_count
                 stats['cycles'] = cycle_count
                 
                 tasks = [hit_api(session, api, phone, stats) for api in ULTIMATE_APIS]
@@ -1066,26 +903,16 @@ async def run_attack(user_id, phone, chat_id, message_id):
                 
                 calls = stats.get('Call', 0)
                 sms = stats.get('SMS', 0)
-                whatsapp = stats.get('WhatsApp', 0)
-                total = calls + sms + whatsapp
+                wa = stats.get('WhatsApp', 0)
+                total = calls + sms + wa
                 
-                stats['last_update'] = time.strftime('%H:%M:%S')
-                
-                admin_tag = "👑 ADMIN MODE" if is_admin(user_id) else ""
                 status_text = f"""
-🎯 <b>ATTACK RUNNING - CYCLE {cycle_count}</b>
-{admin_tag}
+🎯 <b>CYCLE {cycle_count}</b>
 
-📱 <b>Target:</b> <code>{phone}</code>
-⚡ <b>Status:</b> High Speed Firing Active
-
-📊 <b>LIVE HITS:</b>
 📞 Calls: {calls}
 📩 SMS: {sms}
-💬 WhatsApp: {whatsapp}
+💬 WA: {wa}
 🔥 Total: {total}
-
-⏳ Next Cycle: {delay}s
                 """
                 
                 try:
@@ -1105,27 +932,12 @@ async def run_attack(user_id, phone, chat_id, message_id):
                 await asyncio.sleep(delay)
                 
             except Exception as e:
-                logger.error(f"Cycle error: {e}")
                 await asyncio.sleep(5)
     
-    final_stats = attack_stats.get(user_id, {})
-    calls = final_stats.get('Call', 0)
-    sms = final_stats.get('SMS', 0)
-    whatsapp = final_stats.get('WhatsApp', 0)
-    total = calls + sms + whatsapp
-    
     final_text = f"""
-🛑 <b>ATTACK STOPPED</b>
+🛑 <b>STOPPED</b>
 
-📱 <b>Target:</b> <code>{phone}</code>
-🔄 <b>Cycles:</b> {cycle_count}
-⏱️ <b>Time:</b> {time.time() - attack_info['start_time']:.1f}s
-
-📊 <b>SUMMARY:</b>
-📞 Calls: {calls}
-📩 SMS: {sms}
-💬 WhatsApp: {whatsapp}
-🔥 <b>Total Hits: {total}</b>
+🔥 Total Hits: {calls + sms + wa}
     """
     try:
         await bot.edit_message_text(
@@ -1141,46 +953,6 @@ async def run_attack(user_id, phone, chat_id, message_id):
     if user_id in stop_signals: del stop_signals[user_id]
     if user_id in user_attacks: del user_attacks[user_id]
 
-# --- [ LIVE STATS ] ---
-async def stream_live_stats(chat_id, message_id, user_id):
-    while user_id in user_attacks and not stop_signals.get(user_id, False):
-        try:
-            stats = attack_stats.get(user_id, {})
-            attack_info = user_attacks.get(user_id, {})
-            
-            calls = stats.get('Call', 0)
-            sms = stats.get('SMS', 0)
-            wa = stats.get('WhatsApp', 0)
-            total = calls + sms + wa
-            cycles = stats.get('cycles', 0)
-            elapsed = int(time.time() - attack_info.get('start_time', time.time()))
-            
-            live_text = f"""
-🔴 <b>LIVE MONITOR</b>
-
-📱 Target: <code>{attack_info.get('phone', 'N/A')}</code>
-⏱️ Time: {elapsed}s
-🔄 Cycles: {cycles}
-
-📊 Hits:
-📞 Calls: {calls}
-📩 SMS: {sms}
-💬 WA: {wa}
-🔥 Total: {total}
-            """
-            
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=live_text,
-                parse_mode="HTML"
-            )
-                
-            await asyncio.sleep(2.5)
-            
-        except Exception as e:
-            await asyncio.sleep(3)
-
 # --- [ NAVIGATION ] ---
 
 @dp.message(F.text == "🛑 STOP ATTACK")
@@ -1188,18 +960,24 @@ async def stop_attack(message: types.Message):
     user_id = message.from_user.id
     if user_id in stop_signals:
         stop_signals[user_id] = True
-        await message.answer("🛑 <b>Attack stop ho raha hai...</b>", reply_markup=create_main_keyboard(user_id))
+        await message.answer("🛑 Stopping...", reply_markup=create_main_keyboard(user_id))
     else:
-        await message.answer("ℹ️ Koi attack running nahi hai.", reply_markup=create_main_keyboard(user_id))
+        await message.answer("ℹ️ No active attack.", reply_markup=create_main_keyboard(user_id))
 
 @dp.message(F.text == "📊 Live Attack Stats")
 async def live_stats(message: types.Message):
     user_id = message.from_user.id
     if user_id in attack_stats and user_id in user_attacks:
-        live_msg = await message.answer("📡 <b>Live Monitor...</b>", parse_mode="HTML")
-        asyncio.create_task(stream_live_stats(message.chat.id, live_msg.message_id, user_id))
+        stats = attack_stats[user_id]
+        await message.answer(
+            f"📊 <b>LIVE STATS</b>\n\n"
+            f"📞 Calls: {stats.get('Call', 0)}\n"
+            f"📩 SMS: {stats.get('SMS', 0)}\n"
+            f"💬 WA: {stats.get('WhatsApp', 0)}\n"
+            f"🔥 Total: {stats.get('Call', 0) + stats.get('SMS', 0) + stats.get('WhatsApp', 0)}"
+        )
     else:
-        await message.answer("ℹ️ Koi attack data nahi mila.")
+        await message.answer("ℹ️ No attack data.")
 
 @dp.message(F.text == "📊 Check Stats")
 async def check_stats(message: types.Message):
@@ -1208,75 +986,56 @@ async def check_stats(message: types.Message):
     u_data = get_user_data(user_id)
     
     if is_admin(user_id):
-        await message.answer(
-            f"👑 <b>ADMIN STATS</b>\n\n"
-            f"🚀 Total Attacks: <code>{u_data['total_attacks']}</code>\n"
-            f"⚡ Status: Unlimited"
-        )
+        await message.answer(f"👑 Total Attacks: {u_data['total_attacks']}")
     else:
-        await message.answer(
-            f"📊 <b>STATS</b>\n\n"
-            f"🚀 Total Attacks: <code>{u_data['total_attacks']}</code>\n"
-            f"💰 Credits: <code>{u_data['credits']}</code>"
-        )
+        await message.answer(f"📊 Attacks: {u_data['total_attacks']}\n💰 Credits: {u_data['credits']}")
 
 @dp.message(F.text == "🏠 Main Menu")
 async def main_menu(message: types.Message):
-    await message.answer(
-        "🏠 <b>Main Menu</b>",
-        reply_markup=create_main_keyboard(message.from_user.id)
-    )
+    await message.answer("🏠 <b>Main Menu</b>", reply_markup=create_main_keyboard(message.from_user.id))
 
-# --- [ REDEEM CODE DIRECT INPUT ] ---
-@dp.message(F.text.regexp(r'^[A-Za-z0-9]{4,10}$'))
-async def handle_redeem_code(message: types.Message):
-    user_id = message.from_user.id
-    code = message.text.upper()
-    
-    if not await check_subscription(user_id):
-        await send_join_request_message(message)
-        return
-    
-    if is_admin(user_id):
-        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai!")
-        return
-        
-    register_user(user_id, message.from_user.username)
-    
-    success, response = validate_redeem_code(code, user_id)
-    
-    if success:
-        u_data = get_user_data(user_id)
-        await message.answer(
-            f"{response}\n\n💰 <b>New Balance:</b> <code>{u_data['credits']} Credits</code>",
-            parse_mode="HTML"
-        )
-    else:
-        await message.answer(f"❌ {response}", parse_mode="HTML")
-
+# --- [ DIRECT REDEEM INPUT - LAST HANDLER ] ---
 @dp.message()
-async def handle_other_messages(message: types.Message):
-    if not await check_subscription(message.from_user.id):
-        await send_join_request_message(message)
-        return
+async def handle_all_messages(message: types.Message):
+    user_id = message.from_user.id
+    text = message.text.strip().upper()
+    
+    # Check if it's a redeem code (4-10 alphanumeric)
+    if text.isalnum() and 4 <= len(text) <= 10:
+        if not await check_subscription(user_id):
+            await send_join_request_message(message)
+            return
         
-    await message.answer(
-        "❓ <b>Invalid Input!</b>\n\nButtons use karein ya 10-digit number bhejein.",
-        reply_markup=create_main_keyboard(message.from_user.id),
-        parse_mode="HTML"
-    )
+        if is_admin(user_id):
+            await message.answer("👑 Admin ko redeem ki zaroorat nahi!")
+            return
+        
+        register_user(user_id, message.from_user.username)
+        success, response = validate_redeem_code(text, user_id)
+        
+        if success:
+            u_data = get_user_data(user_id)
+            await message.answer(f"✅ {response}\n💰 Balance: {u_data['credits']}")
+        else:
+            await message.answer(f"❌ {response}")
+    else:
+        await message.answer(
+            "❓ <b>Invalid Input!</b>\n\n"
+            "Buttons use karein ya 10-digit number bhejein.",
+            reply_markup=create_main_keyboard(user_id)
+        )
 
 # --- [ BOT BOOTSTRAP ] ---
 async def main():
-    logger.info("Bot start ho raha hai...")
-    logger.info(f"Loaded APIs: {len(ULTIMATE_APIS)}")
+    logger.info("Bot starting...")
+    logger.info(f"APIs: {len(ULTIMATE_APIS)}")
     logger.info(f"Channel: {CHANNEL_ID}")
     logger.info(f"Admins: {ADMIN_IDS}")
     
     try:
         await start_dummy_server()
     except Exception as e:
-        logger.error(f"Dummy Server error: {e}")
+        logger.error(f"Server error: {e}")
         
     try:
         await dp.start_polling(bot)
