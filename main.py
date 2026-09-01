@@ -45,6 +45,7 @@ class AdminStates(StatesGroup):
     waiting_for_redeem_code = State()
     waiting_for_redeem_amount = State()
     waiting_for_redeem_limit = State()
+    waiting_for_phone_number = State()  # New state for phone number input
 
 # Attack tracking variables
 stop_signals = {}
@@ -435,7 +436,7 @@ Aapka account successfully load ho gaya hai.
 
 👤 <b>Aapka Balance:</b> <code>{u_data['credits']} Credits</code>
 ⚡ <b>Attack Cost:</b> 5 Credits per Attack
-🎟️ <b>Redeem Code:</b> Special codes se free credits paayein
+🎟️ <b>Redeem Code:</b> /redeem CODE se credits paayein
 
 📌 <b>Kaise Use Karein:</b>
 • Direct 10-digit number type karke bhejein.
@@ -445,6 +446,66 @@ Aapka account successfully load ho gaya hai.
         """
     
     await message.answer(welcome_text, reply_markup=create_main_keyboard(message.from_user.id))
+
+# --- [ REDEEM COMMAND HANDLER ] ---
+@dp.message(Command("redeem"))
+async def redeem_command(message: types.Message):
+    user_id = message.from_user.id
+    
+    # Check subscription
+    if not await check_subscription(user_id):
+        await send_join_request_message(message)
+        return
+    
+    # Admin check
+    if is_admin(user_id):
+        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai! Aapke paas unlimited access hai.")
+        return
+    
+    # Get code from command
+    try:
+        # /redeem CODE format
+        parts = message.text.split()
+        if len(parts) != 2:
+            await message.answer(
+                "❌ <b>Usage:</b> <code>/redeem CODE</code>\n\n"
+                "Example: <code>/redeem ABC123</code>\n\n"
+                "Redeem code paane ke liye admin se contact karein.",
+                parse_mode="HTML"
+            )
+            return
+        
+        code = parts[1].upper()
+        
+        # Validate code format
+        if not code.isalnum() or len(code) < 4 or len(code) > 10:
+            await message.answer("❌ Invalid code format! Code 4-10 alphanumeric characters ka hona chahiye.")
+            return
+        
+        register_user(user_id, message.from_user.username)
+        
+        # Try to redeem
+        success, response = validate_redeem_code(code, user_id)
+        
+        if success:
+            u_data = get_user_data(user_id)
+            await message.answer(
+                f"🎉 <b>SUCCESS!</b>\n\n"
+                f"{response}\n"
+                f"💰 <b>New Balance:</b> <code>{u_data['credits']} Credits</code>",
+                parse_mode="HTML",
+                reply_markup=create_main_keyboard(user_id)
+            )
+        else:
+            await message.answer(
+                f"❌ <b>Error:</b> {response}",
+                parse_mode="HTML",
+                reply_markup=create_main_keyboard(user_id)
+            )
+            
+    except Exception as e:
+        logger.error(f"Redeem command error: {e}")
+        await message.answer("❌ Kuch error aa gaya! Kripya dubara try karein.")
 
 @dp.callback_query(F.data == "verify_sub")
 async def verify_subscription_callback(callback: types.CallbackQuery):
@@ -544,7 +605,7 @@ Agar aapke credits khatam ho gaye hain to recharge karein:
 2. Apna <b>User ID</b> bhejein: <code>{message.from_user.id}</code>
 3. Payment screenshot bhejne par credits turant add ho jayenge!
 
-🎟️ <b>Redeem Code:</b> '🎟️ Redeem Code' button se free credits paayein!
+🎟️ <b>Redeem Code:</b> /redeem CODE se free credits paayein!
     """
     await message.answer(plans_text, parse_mode="HTML")
 
@@ -561,43 +622,15 @@ async def redeem_code_prompt(message: types.Message):
         
     await message.answer(
         "🎟️ <b>REDEEM CODE SYSTEM</b>\n\n"
-        "Apna redeem code enter karein:\n"
-        "<i>Code alphanumeric hota hai (Example: ABC123)</i>",
+        "Redeem code use karne ke 2 tarike hain:\n\n"
+        "1️⃣ <b>Command se:</b>\n"
+        "<code>/redeem CODE</code>\n"
+        "Example: <code>/redeem ABC123</code>\n\n"
+        "2️⃣ <b>Direct enter karein:</b>\n"
+        "Bas code type karke bhej dein\n\n"
+        "<i>Code admin se contact karke paayein</i>",
         parse_mode="HTML"
     )
-
-@dp.message(F.text.regexp(r'^[A-Za-z0-9]{4,10}$'))
-async def handle_redeem_code(message: types.Message):
-    user_id = message.from_user.id
-    code = message.text.upper()
-    
-    if not await check_subscription(user_id):
-        await send_join_request_message(message)
-        return
-    
-    # Admin ke liye redeem code nahi
-    if is_admin(user_id):
-        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai!")
-        return
-        
-    register_user(user_id, message.from_user.username)
-    
-    success, response = validate_redeem_code(code, user_id)
-    
-    if success:
-        u_data = get_user_data(user_id)
-        await message.answer(
-            f"{response}\n\n"
-            f"💰 <b>New Balance:</b> <code>{u_data['credits']} Credits</code>",
-            parse_mode="HTML",
-            reply_markup=create_main_keyboard(user_id)
-        )
-    else:
-        await message.answer(
-            f"❌ <b>Error:</b> {response}",
-            parse_mode="HTML",
-            reply_markup=create_main_keyboard(user_id)
-        )
 
 @dp.message(F.text == "ℹ️ Help Guide")
 async def help_command(message: types.Message):
@@ -625,8 +658,8 @@ Admin ke liye koi credit system nahi hai!
 4. Bombing rokne ke liye <b>'🛑 STOP ATTACK'</b> dabayein.
 
 🎟️ <b>Redeem Code:</b>
-- '🎟️ Redeem Code' button dabayein
-- Apna code enter karein
+- Command: <code>/redeem CODE</code>
+- Ya '🎟️ Redeem Code' button dabayein
 - Free credits paayein!
 
 Kisi bhi problem ya recharge ke liye contact: {DEVELOPER_ID}
@@ -901,7 +934,8 @@ async def process_redeem_limit(message: types.Message, state: FSMContext):
             f"🎟️ <b>Code:</b> <code>{code}</code>\n"
             f"💰 <b>Credits:</b> {amount}\n"
             f"👥 <b>User Limit:</b> {max_uses}\n\n"
-            f"Ab aap yeh code users ko de sakte hain!"
+            f"Ab aap yeh code users ko de sakte hain!\n"
+            f"Users ise <code>/redeem {code}</code> se use kar sakte hain!"
         )
     except ValueError:
         await message.answer("❌ Invalid limit! Number enter karein.")
@@ -939,7 +973,7 @@ async def admin_list_redeem_codes(callback: types.CallbackQuery):
 # --- [ ATTACK LOGIC & EXECUTION ] ---
 
 @dp.message(F.text == "🚀 Start Infinite Boom")
-async def start_attack_prompt(message: types.Message):
+async def start_attack_prompt(message: types.Message, state: FSMContext):
     if not await check_subscription(message.from_user.id):
         await send_join_request_message(message)
         return
@@ -957,6 +991,9 @@ async def start_attack_prompt(message: types.Message):
             reply_markup=create_main_keyboard(message.from_user.id)
         )
         return
+    
+    # Set state to waiting for phone number
+    await state.set_state(AdminStates.waiting_for_phone_number)
         
     await message.answer(
         "📱 <b>Target ka 10-digit mobile number enter karein:</b>\n\n"
@@ -965,13 +1002,26 @@ async def start_attack_prompt(message: types.Message):
         parse_mode="HTML"
     )
 
-@dp.message(F.text.regexp(r'^\d{10}$'))
-async def handle_phone_number(message: types.Message):
+@dp.message(AdminStates.waiting_for_phone_number)
+async def handle_phone_number(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    phone = message.text
+    phone = message.text.strip()
+    
+    # Clear state
+    await state.clear()
     
     if not await check_subscription(user_id):
         await send_join_request_message(message)
+        return
+    
+    # Validate phone number format
+    if not phone.isdigit() or len(phone) != 10:
+        await message.answer(
+            "❌ <b>Invalid Number!</b>\n"
+            "10-digit mobile number enter karein (Example: 9876543210)",
+            parse_mode="HTML",
+            reply_markup=create_main_keyboard(user_id)
+        )
         return
         
     register_user(user_id, message.from_user.username)
@@ -992,7 +1042,8 @@ async def handle_phone_number(message: types.Message):
         await message.answer(
             "❌ <b>Galat Number!</b>\n"
             "Indian phone number 6, 7, 8 ya 9 se shuru hona chahiye.",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=create_main_keyboard(user_id)
         )
         return
     
@@ -1277,6 +1328,40 @@ async def main_menu(message: types.Message):
         "🏠 <b>Main Menu</b>\nNeeche diye gaye option select karein:",
         reply_markup=create_main_keyboard(message.from_user.id)
     )
+
+# --- [ REDEEM CODE HANDLER (Direct code input) ] ---
+@dp.message(F.text.regexp(r'^[A-Za-z0-9]{4,10}$'))
+async def handle_redeem_code(message: types.Message):
+    user_id = message.from_user.id
+    code = message.text.upper()
+    
+    if not await check_subscription(user_id):
+        await send_join_request_message(message)
+        return
+    
+    # Admin ke liye redeem code nahi
+    if is_admin(user_id):
+        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai! Aapke paas unlimited access hai.")
+        return
+        
+    register_user(user_id, message.from_user.username)
+    
+    success, response = validate_redeem_code(code, user_id)
+    
+    if success:
+        u_data = get_user_data(user_id)
+        await message.answer(
+            f"{response}\n\n"
+            f"💰 <b>New Balance:</b> <code>{u_data['credits']} Credits</code>",
+            parse_mode="HTML",
+            reply_markup=create_main_keyboard(user_id)
+        )
+    else:
+        await message.answer(
+            f"❌ <b>Error:</b> {response}",
+            parse_mode="HTML",
+            reply_markup=create_main_keyboard(user_id)
+        )
 
 @dp.message()
 async def handle_other_messages(message: types.Message):
