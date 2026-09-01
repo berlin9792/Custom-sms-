@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 # --- [ CONFIGURATION ] ---
 BOT_TOKEN = "8927679179:AAHSovin2ewne_VUKY7FVEA4lEz6figrVZ0"
 DEVELOPER_ID = "@theplayerror"
-ADMIN_IDS = [5057489358]
+ADMIN_IDS = [5057489358]  # Admin Telegram IDs
 DB_FILE = "users_db.json"
 REDEEM_DB_FILE = "redeem_codes.json"
 
-# --- [ FORCE JOIN CONFIGURATION (SINGLE CHANNEL) ] ---
-CHANNEL_ID = "@zerotracelegit"  # Apna Channel Username yahan dalein
+# --- [ FORCE JOIN CONFIGURATION ] ---
+CHANNEL_ID = "@zerotracelegit"  # Updated Channel Username
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher(storage=MemoryStorage())
@@ -136,25 +136,38 @@ def save_db(data):
 def register_user(user_id, username):
     db = load_db()
     uid = str(user_id)
+    
+    # Admin users ko special treatment
+    is_admin = user_id in ADMIN_IDS
+    
     if uid not in db["users"]:
         db["users"][uid] = {
             "username": f"@{username}" if username else "No Username",
-            "credits": 10,
+            "credits": float('inf') if is_admin else 10,  # Admin ko unlimited credits
             "total_attacks": 0,
-            "joined_at": time.strftime('%d-%m-%Y %H:%M:%S')
+            "joined_at": time.strftime('%d-%m-%Y %H:%M:%S'),
+            "is_admin": is_admin
         }
         save_db(db)
     elif username:
         db["users"][uid]["username"] = f"@{username}"
+        db["users"][uid]["is_admin"] = is_admin
+        if is_admin:
+            db["users"][uid]["credits"] = float('inf')  # Admin ko hamesha unlimited
         save_db(db)
 
 def get_user_data(user_id):
     db = load_db()
     return db["users"].get(str(user_id))
 
+def is_admin(user_id):
+    """Check if user is admin"""
+    return user_id in ADMIN_IDS
+
 # --- [ SUBSCRIPTION VERIFICATION ] ---
 async def check_subscription(user_id: int) -> bool:
-    if user_id in ADMIN_IDS:
+    # Admins are exempted from subscription check
+    if is_admin(user_id):
         return True
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
@@ -319,10 +332,14 @@ def create_main_keyboard(user_id):
     builder = ReplyKeyboardBuilder()
     builder.row(types.KeyboardButton(text="🚀 Start Infinite Boom"))
     builder.row(types.KeyboardButton(text="👤 Meri Profile"), types.KeyboardButton(text="📊 Check Stats"))
-    builder.row(types.KeyboardButton(text="💰 Buy Credits"), types.KeyboardButton(text="🎟️ Redeem Code"))
+    
+    # Admin ke liye Buy Credits aur Redeem Code nahi dikhana
+    if not is_admin(user_id):
+        builder.row(types.KeyboardButton(text="💰 Buy Credits"), types.KeyboardButton(text="🎟️ Redeem Code"))
+    
     builder.row(types.KeyboardButton(text="ℹ️ Help Guide"))
     
-    if user_id in ADMIN_IDS:
+    if is_admin(user_id):
         builder.row(types.KeyboardButton(text="👑 Admin Panel"))
         
     return builder.as_markup(resize_keyboard=True)
@@ -385,12 +402,33 @@ Bot ke advance features use karne ke liye aapko humare official channel ko join 
 async def start_command(message: types.Message):
     register_user(message.from_user.id, message.from_user.username)
     
+    # Admin ko subscription check se exempt
     if not await check_subscription(message.from_user.id):
         await send_join_request_message(message)
         return
         
     u_data = get_user_data(message.from_user.id)
-    welcome_text = f"""
+    
+    if is_admin(message.from_user.id):
+        welcome_text = f"""
+👑 <b>ADMIN ACCESS GRANTED!</b> 👑
+
+Aapka admin account successfully load ho gaya hai.
+
+⚡ <b>Status:</b> Unlimited Access (No Credit System)
+🚀 <b>Attack:</b> Kabhi bhi, kitni bhi baar!
+
+📌 <b>Admin Features:</b>
+• Unlimited Attacks (No Credits Required)
+• User Management
+• Broadcast Messages
+• Redeem Code Generation
+• Credit Management
+
+👨‍💻 <b>Developer:</b> {DEVELOPER_ID}
+        """
+    else:
+        welcome_text = f"""
 🎯 <b>BOMBER BOT ME AAPKA SWAGAT HAI!</b> 🎯
 
 Aapka account successfully load ho gaya hai.
@@ -404,7 +442,8 @@ Aapka account successfully load ho gaya hai.
 • Ya fir neeche diye gaye menu buttons use karein.
 
 👨‍💻 <b>Developer Support:</b> {DEVELOPER_ID}
-    """
+        """
+    
     await message.answer(welcome_text, reply_markup=create_main_keyboard(message.from_user.id))
 
 @dp.callback_query(F.data == "verify_sub")
@@ -419,7 +458,14 @@ async def verify_subscription_callback(callback: types.CallbackQuery):
             pass
         
         u_data = get_user_data(user_id)
-        welcome_text = f"""
+        if is_admin(user_id):
+            welcome_text = f"""
+👑 <b>ADMIN ACCESS!</b>
+
+Aapke paas unlimited access hai!
+            """
+        else:
+            welcome_text = f"""
 🎉 <b>CONGRATULATIONS! Bot Unlocked</b> 🎉
 
 Aapka account successfully verify ho gaya hai.
@@ -428,7 +474,8 @@ Aapka account successfully verify ho gaya hai.
 ⚡ <b>Attack Cost:</b> 5 Credits per Attack
 
 Ab aap '🚀 Start Infinite Boom' button ka use karke instant bombing start kar sakte hain!
-        """
+            """
+        
         await callback.message.answer(welcome_text, reply_markup=create_main_keyboard(user_id))
     else:
         await callback.answer("❌ Aapne channel join nahi kiya hai! Kripya channel join karein.", show_alert=True)
@@ -442,7 +489,20 @@ async def user_profile(message: types.Message):
     register_user(message.from_user.id, message.from_user.username)
     u_data = get_user_data(message.from_user.id)
     
-    profile_text = f"""
+    if is_admin(message.from_user.id):
+        profile_text = f"""
+👑 <b>ADMIN PROFILE</b>
+
+🆔 <b>User ID:</b> <code>{message.from_user.id}</code>
+👤 <b>Username:</b> {u_data['username']}
+⚡ <b>Status:</b> Unlimited Access
+🚀 <b>Total Attacks Done:</b> {u_data['total_attacks']}
+📅 <b>Account Created:</b> {u_data['joined_at']}
+
+ℹ️ <i>Admin ko koi credit limit nahi hai.</i>
+        """
+    else:
+        profile_text = f"""
 👤 <b>AAPKI PROFILE DETAILS</b>
 
 🆔 <b>User ID:</b> <code>{message.from_user.id}</code>
@@ -452,13 +512,19 @@ async def user_profile(message: types.Message):
 📅 <b>Account Created:</b> {u_data['joined_at']}
 
 ℹ️ <i>Ek attack start karne par 5 credits deduct hote hain.</i>
-    """
+        """
+    
     await message.answer(profile_text, parse_mode="HTML")
 
 @dp.message(F.text == "💰 Buy Credits")
 async def buy_credits_info(message: types.Message):
     if not await check_subscription(message.from_user.id):
         await send_join_request_message(message)
+        return
+    
+    # Admin ke liye yeh option hide hai, but phir bhi check
+    if is_admin(message.from_user.id):
+        await message.answer("👑 Admin ke liye credits ki zaroorat nahi hai! Aapke paas unlimited access hai.")
         return
         
     plans_text = f"""
@@ -487,6 +553,11 @@ async def redeem_code_prompt(message: types.Message):
     if not await check_subscription(message.from_user.id):
         await send_join_request_message(message)
         return
+    
+    # Admin ke liye redeem code nahi
+    if is_admin(message.from_user.id):
+        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai! Aapke paas unlimited access hai.")
+        return
         
     await message.answer(
         "🎟️ <b>REDEEM CODE SYSTEM</b>\n\n"
@@ -502,6 +573,11 @@ async def handle_redeem_code(message: types.Message):
     
     if not await check_subscription(user_id):
         await send_join_request_message(message)
+        return
+    
+    # Admin ke liye redeem code nahi
+    if is_admin(user_id):
+        await message.answer("👑 Admin ke liye redeem code ki zaroorat nahi hai!")
         return
         
     register_user(user_id, message.from_user.username)
@@ -528,8 +604,19 @@ async def help_command(message: types.Message):
     if not await check_subscription(message.from_user.id):
         await send_join_request_message(message)
         return
-        
-    help_text = f"""
+    
+    if is_admin(message.from_user.id):
+        help_text = f"""
+👑 <b>ADMIN HELP GUIDE</b> 👑
+
+1. <b>'🚀 Start Infinite Boom'</b> - Unlimited attacks
+2. <b>'👑 Admin Panel'</b> - User management, credits, redeem codes
+3. <b>'📊 Check Stats'</b> - Attack history
+
+Admin ke liye koi credit system nahi hai!
+        """
+    else:
+        help_text = f"""
 🆘 <b>HELP & USAGE GUIDE</b> 🆘
 
 1. <b>'🚀 Start Infinite Boom'</b> par click karein.
@@ -543,14 +630,15 @@ async def help_command(message: types.Message):
 - Free credits paayein!
 
 Kisi bhi problem ya recharge ke liye contact: {DEVELOPER_ID}
-    """
+        """
+    
     await message.answer(help_text, parse_mode="HTML")
 
 # --- [ ADMIN PANEL & FSM HANDLERS ] ---
 
 @dp.message(F.text == "👑 Admin Panel")
 async def admin_panel(message: types.Message):
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_admin(message.from_user.id):
         return
     
     await message.answer(
@@ -561,14 +649,15 @@ async def admin_panel(message: types.Message):
 
 @dp.callback_query(F.data == "adm_users")
 async def admin_total_users(callback: types.CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         return
     db = load_db()
     total_users = len(db["users"])
     
     users_list = "👥 <b>Recent Users List:</b>\n"
     for uid, data in list(db["users"].items())[-10:]:
-        users_list += f"• <code>{uid}</code> | {data['username']} | Cr: <b>{data['credits']}</b>\n"
+        credits_display = "∞" if data.get('is_admin', False) else data['credits']
+        users_list += f"• <code>{uid}</code> | {data['username']} | Cr: <b>{credits_display}</b>\n"
         
     await callback.message.edit_text(
         f"📊 <b>Total Registered Users:</b> {total_users}\n\n{users_list}",
@@ -578,7 +667,7 @@ async def admin_total_users(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "adm_broadcast")
 async def admin_broadcast_prompt(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         return
     await state.set_state(AdminStates.waiting_for_broadcast)
     await callback.message.answer("📢 Sabhi users ko broadcast karne wala message bhejiye:")
@@ -587,7 +676,7 @@ async def admin_broadcast_prompt(callback: types.CallbackQuery, state: FSMContex
 @dp.message(AdminStates.waiting_for_broadcast)
 async def process_broadcast(message: types.Message, state: FSMContext):
     await state.clear()
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_admin(message.from_user.id):
         return
     
     db = load_db()
@@ -613,7 +702,7 @@ async def process_broadcast(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "adm_give_credits")
 async def admin_add_credits_prompt(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         return
     await state.set_state(AdminStates.waiting_for_add_credits)
     await callback.message.answer(
@@ -627,7 +716,7 @@ async def admin_add_credits_prompt(callback: types.CallbackQuery, state: FSMCont
 @dp.message(AdminStates.waiting_for_add_credits)
 async def process_add_credits(message: types.Message, state: FSMContext):
     await state.clear()
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_admin(message.from_user.id):
         return
     
     try:
@@ -636,6 +725,11 @@ async def process_add_credits(message: types.Message, state: FSMContext):
         
         db = load_db()
         if user_id in db["users"]:
+            # Admin user ko credits nahi add kar sakte
+            if db["users"][user_id].get('is_admin', False):
+                await message.answer("❌ Admin user ke paas already unlimited credits hain!")
+                return
+                
             db["users"][user_id]["credits"] += amount
             save_db(db)
             await message.answer(f"✅ User <code>{user_id}</code> ke account me <b>{amount} Credits</b> add ho gaye.")
@@ -653,7 +747,7 @@ async def process_add_credits(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "adm_remove_credits")
 async def admin_remove_credits_prompt(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         return
     await state.set_state(AdminStates.waiting_for_remove_credits)
     await callback.message.answer(
@@ -667,7 +761,7 @@ async def admin_remove_credits_prompt(callback: types.CallbackQuery, state: FSMC
 @dp.message(AdminStates.waiting_for_remove_credits)
 async def process_remove_credits(message: types.Message, state: FSMContext):
     await state.clear()
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_admin(message.from_user.id):
         return
     
     try:
@@ -676,6 +770,11 @@ async def process_remove_credits(message: types.Message, state: FSMContext):
         
         db = load_db()
         if user_id in db["users"]:
+            # Admin user ke credits remove nahi kar sakte
+            if db["users"][user_id].get('is_admin', False):
+                await message.answer("❌ Admin user ke credits remove nahi kar sakte!")
+                return
+                
             db["users"][user_id]["credits"] = max(0, db["users"][user_id]["credits"] - amount)
             save_db(db)
             await message.answer(f"✅ User <code>{user_id}</code> se <b>{amount} Credits</b> cut kar diye gaye.")
@@ -686,7 +785,7 @@ async def process_remove_credits(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "adm_user_info")
 async def admin_user_info_prompt(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         return
     await state.set_state(AdminStates.waiting_for_user_info)
     await callback.message.answer("🔍 User details check karne ke liye <b>User ID</b> bhejein:")
@@ -695,19 +794,23 @@ async def admin_user_info_prompt(callback: types.CallbackQuery, state: FSMContex
 @dp.message(AdminStates.waiting_for_user_info)
 async def process_user_info(message: types.Message, state: FSMContext):
     await state.clear()
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_admin(message.from_user.id):
         return
     
     uid = message.text.strip()
     db = load_db()
     if uid in db["users"]:
         u_data = db["users"][uid]
+        credits_display = "∞ (Unlimited)" if u_data.get('is_admin', False) else u_data['credits']
+        user_type = "👑 Admin" if u_data.get('is_admin', False) else "👤 User"
+        
         info_text = f"""
 👤 <b>USER DETAILS SUMMARY:</b>
 
 🆔 <b>User ID:</b> <code>{uid}</code>
 👤 <b>Username:</b> {u_data['username']}
-💰 <b>Current Credits:</b> <code>{u_data['credits']}</code>
+📊 <b>Type:</b> {user_type}
+💰 <b>Current Credits:</b> <code>{credits_display}</code>
 🚀 <b>Total Attacks Done:</b> {u_data['total_attacks']}
 📅 <b>Joining Date:</b> {u_data['joined_at']}
         """
@@ -719,7 +822,7 @@ async def process_user_info(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "adm_create_redeem")
 async def admin_create_redeem_prompt(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         return
     await state.set_state(AdminStates.waiting_for_redeem_code)
     await callback.message.answer(
@@ -732,7 +835,7 @@ async def admin_create_redeem_prompt(callback: types.CallbackQuery, state: FSMCo
 
 @dp.message(AdminStates.waiting_for_redeem_code)
 async def process_redeem_code_input(message: types.Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_admin(message.from_user.id):
         return
     
     code_input = message.text.strip().upper()
@@ -745,7 +848,6 @@ async def process_redeem_code_input(message: types.Message, state: FSMContext):
             return
         code = code_input
     
-    # Store code in state
     await state.update_data(redeem_code=code)
     await state.set_state(AdminStates.waiting_for_redeem_amount)
     
@@ -756,7 +858,7 @@ async def process_redeem_code_input(message: types.Message, state: FSMContext):
 
 @dp.message(AdminStates.waiting_for_redeem_amount)
 async def process_redeem_amount(message: types.Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_admin(message.from_user.id):
         return
     
     try:
@@ -765,7 +867,6 @@ async def process_redeem_amount(message: types.Message, state: FSMContext):
             await message.answer("❌ Amount positive hona chahiye!")
             return
         
-        # Store amount in state
         await state.update_data(redeem_amount=amount)
         await state.set_state(AdminStates.waiting_for_redeem_limit)
         
@@ -778,7 +879,7 @@ async def process_redeem_amount(message: types.Message, state: FSMContext):
 
 @dp.message(AdminStates.waiting_for_redeem_limit)
 async def process_redeem_limit(message: types.Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
+    if not is_admin(message.from_user.id):
         return
     
     try:
@@ -787,12 +888,10 @@ async def process_redeem_limit(message: types.Message, state: FSMContext):
             await message.answer("❌ Limit positive honi chahiye!")
             return
         
-        # Get all data from state
         data = await state.get_data()
         code = data.get('redeem_code')
         amount = data.get('redeem_amount')
         
-        # Create redeem code
         create_redeem_code(code, amount, max_uses)
         
         await state.clear()
@@ -809,7 +908,7 @@ async def process_redeem_limit(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "adm_list_redeem")
 async def admin_list_redeem_codes(callback: types.CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         return
     
     db = load_redeem_db()
@@ -848,7 +947,8 @@ async def start_attack_prompt(message: types.Message):
     register_user(message.from_user.id, message.from_user.username)
     u_data = get_user_data(message.from_user.id)
     
-    if u_data["credits"] < 5:
+    # Admin ke liye credit check skip
+    if not is_admin(message.from_user.id) and u_data["credits"] < 5:
         await message.answer(
             f"❌ <b>Insufficient Credits!</b>\n\n"
             f"Aapke pass sirf <code>{u_data['credits']} Credits</code> bache hain.\n"
@@ -878,7 +978,8 @@ async def handle_phone_number(message: types.Message):
     db = load_db()
     u_data = db["users"].get(str(user_id))
     
-    if u_data["credits"] < 5:
+    # Admin ke liye credit check skip
+    if not is_admin(user_id) and u_data["credits"] < 5:
         await message.answer(
             f"❌ <b>Low Balance!</b>\n"
             f"Aapke pass {u_data['credits']} credits hain (Chahiye: 5 Credits).\n\n"
@@ -895,7 +996,13 @@ async def handle_phone_number(message: types.Message):
         )
         return
     
-    db["users"][str(user_id)]["credits"] -= 5
+    # Credits deduct sirf non-admin users ke liye
+    if not is_admin(user_id):
+        db["users"][str(user_id)]["credits"] -= 5
+        credits_left = db["users"][str(user_id)]["credits"]
+    else:
+        credits_left = "∞ (Unlimited)"
+    
     db["users"][str(user_id)]["total_attacks"] += 1
     save_db(db)
     
@@ -914,14 +1021,24 @@ async def handle_phone_number(message: types.Message):
         'last_update': time.strftime('%H:%M:%S')
     }
     
-    start_msg = await message.answer(
-        "🎯 <b>ATTACK INITIALIZING...</b>\n\n"
-        f"🎯 <b>Target:</b> <code>{phone}</code>\n"
-        f"⚡ <b>5 Credits Deducted</b> (Left: {db['users'][str(user_id)]['credits']})\n\n"
-        "🚀 Server se connection banaya ja raha hai...",
-        parse_mode="HTML",
-        reply_markup=create_stop_keyboard()
-    )
+    if is_admin(user_id):
+        start_msg = await message.answer(
+            "👑 <b>ADMIN ATTACK INITIALIZING...</b>\n\n"
+            f"🎯 <b>Target:</b> <code>{phone}</code>\n"
+            f"⚡ <b>Unlimited Access</b> (No Credits Deducted)\n\n"
+            "🚀 Server se connection banaya ja raha hai...",
+            parse_mode="HTML",
+            reply_markup=create_stop_keyboard()
+        )
+    else:
+        start_msg = await message.answer(
+            "🎯 <b>ATTACK INITIALIZING...</b>\n\n"
+            f"🎯 <b>Target:</b> <code>{phone}</code>\n"
+            f"⚡ <b>5 Credits Deducted</b> (Left: {credits_left})\n\n"
+            "🚀 Server se connection banaya ja raha hai...",
+            parse_mode="HTML",
+            reply_markup=create_stop_keyboard()
+        )
     
     await animate_message(message.chat.id, start_msg.message_id, f"Target: {phone}")
     
@@ -951,8 +1068,10 @@ async def run_attack(user_id, phone, chat_id, message_id):
                 
                 stats['last_update'] = time.strftime('%H:%M:%S')
                 
+                admin_tag = "👑 ADMIN MODE" if is_admin(user_id) else ""
                 status_text = f"""
 🎯 <b>ATTACK RUNNING - CYCLE {cycle_count}</b>
+{admin_tag}
 
 📱 <b>Target:</b> <code>{phone}</code>
 ⚡ <b>Status:</b> High Speed Firing Active
@@ -1041,8 +1160,10 @@ async def stream_live_stats(chat_id, message_id, user_id):
             elapsed = int(time.time() - start_time)
             phone = attack_info.get('phone', 'N/A')
             
+            admin_tag = "👑 ADMIN MODE" if is_admin(user_id) else ""
             live_text = f"""
 🔴 <b>LIVE REAL-TIME ATTACK MONITOR</b>
+{admin_tag}
 
 📱 <b>Target:</b> <code>{phone}</code>
 ⏱️ <b>Running Time:</b> <code>{elapsed} seconds</code>
@@ -1126,12 +1247,25 @@ async def check_stats(message: types.Message):
         
     register_user(user_id, message.from_user.username)
     u_data = get_user_data(user_id)
-    await message.answer(
-        f"📊 <b>ATTACK HISTORY & BALANCE</b>\n\n"
-        f"👤 Account: {u_data['username']}\n"
-        f"🚀 Total Attacks Launched: <code>{u_data['total_attacks']}</code>\n"
-        f"💰 Remaining Credits: <code>{u_data['credits']}</code>"
-    )
+    
+    if is_admin(user_id):
+        stats_text = f"""
+👑 <b>ADMIN ATTACK STATISTICS</b>
+
+👤 Account: {u_data['username']}
+⚡ Status: Unlimited Access
+🚀 Total Attacks Launched: <code>{u_data['total_attacks']}</code>
+        """
+    else:
+        stats_text = f"""
+📊 <b>ATTACK HISTORY & BALANCE</b>
+
+👤 Account: {u_data['username']}
+🚀 Total Attacks Launched: <code>{u_data['total_attacks']}</code>
+💰 Remaining Credits: <code>{u_data['credits']}</code>
+        """
+    
+    await message.answer(stats_text, parse_mode="HTML")
 
 @dp.message(F.text == "🏠 Main Menu")
 async def main_menu(message: types.Message):
@@ -1160,6 +1294,8 @@ async def handle_other_messages(message: types.Message):
 async def main():
     logger.info("Bot start ho raha hai...")
     logger.info(f"Loaded APIs: {len(ULTIMATE_APIS)}")
+    logger.info(f"Channel: {CHANNEL_ID}")
+    logger.info(f"Admins: {ADMIN_IDS}")
     
     try:
         await start_dummy_server()
